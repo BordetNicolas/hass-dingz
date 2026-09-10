@@ -1,0 +1,103 @@
+"""Event platform for Dingz."""
+
+from homeassistant.components.event import EventDeviceClass, EventEntity
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from . import api
+from .coordinator import DingzConfigEntry, DingzRuntime
+from .entity import InternalNotificationMixin, UserAssignedNameMixin, entity_unique_id
+from .models import ButtonNotification, InternalNotification, PirNotification
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: DingzConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    runtime = config_entry.runtime_data
+    entities: list[EventEntity] = []
+
+    try:
+        mqtt_enabled = runtime.device_config.services["mqtt"]["enable"]
+    except LookupError:
+        mqtt_enabled = False
+
+    if mqtt_enabled:
+        try:
+            pirs = runtime.coordinator.data["sensors"]["pirs"]
+        except LookupError:
+            pirs = []
+        for index, dingz_pir in enumerate(pirs):
+            if dingz_pir and dingz_pir.get("enabled", False):
+                entities.append(Pir(runtime, index=index))
+
+        try:
+            buttons = runtime.device_config.buttons["buttons"]
+        except LookupError:
+            buttons = []
+        for index, dingz_button in enumerate(buttons):
+            if dingz_button.get("active", False):
+                entities.append(Button(runtime, index=index))
+
+    async_add_entities(entities)
+
+
+class Pir(InternalNotificationMixin, EventEntity):
+    _attr_has_entity_name = True
+    _attr_device_class = EventDeviceClass.MOTION
+    _attr_event_types = ["s", "ss", "n"]
+
+    def __init__(self, runtime: DingzRuntime, index: int) -> None:
+        super().__init__(runtime)
+        self._index = index
+        self._attr_unique_id = entity_unique_id(runtime, f"pir_event_{index}")
+        self._attr_device_info = runtime.device_info
+        self._attr_translation_key = f"pir_{index}"
+
+    @callback
+    def handle_notification(self, notification: InternalNotification) -> None:
+        if not (
+            isinstance(notification, PirNotification)
+            and notification.index == self._index
+        ):
+            return
+        self._trigger_event(notification.event_type)
+        self.async_write_ha_state()
+
+
+class Button(InternalNotificationMixin, EventEntity, UserAssignedNameMixin):
+    _attr_translation_key = "button"
+    _attr_device_class = EventDeviceClass.BUTTON
+    _attr_event_types = ["p", "r", "h", "m1", "m2", "m3", "m4", "m5"]
+
+    def __init__(self, runtime: DingzRuntime, index: int) -> None:
+        super().__init__(runtime)
+        self._index = index
+        self._attr_unique_id = entity_unique_id(runtime, f"button_{index}")
+        self._attr_device_info = runtime.device_info
+
+    @property
+    def dingz_button_config(self) -> api.ButtonConfig:
+        try:
+            return self.runtime.device_config.buttons["buttons"][self._index]
+        except LookupError:
+            return api.ButtonConfig()
+
+    @property
+    def comp_index(self) -> int:
+        return self._index
+
+    @property
+    def user_given_name(self) -> str | None:
+        return self.dingz_button_config.get("name")
+
+    @callback
+    def handle_notification(self, notification: InternalNotification) -> None:
+        if not (
+            isinstance(notification, ButtonNotification)
+            and notification.index == self._index
+        ):
+            return
+        self._trigger_event(notification.event_type)
+        self.async_write_ha_state()

@@ -1,0 +1,207 @@
+{
+    "config": {
+        "abort": {
+            "device_already_configured": "Cet appareil est déjà configuré"
+        },
+        "error": {
+            "cannot_connect": "Connexion impossible",
+            "unknown": "Erreur inattendue"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "host": "Hôte"
+                },
+                "description": "Saisissez le nom d’hôte ou l’adresse IP du dingz (par exemple 192.168.2.42)."
+            },
+            "confirm": {
+                "description": "Confirmer l’ajout ?"
+            }
+        },
+        "flow_title": "{name}"
+    },
+    "entity": {
+        "binary_sensor": {
+            "input": {
+                "name": "Entrée {position}"
+            },
+            "motion_0": {
+                "name": "Mouvement PIR"
+            },
+            "motion_1": {
+                "name": "PIR interne"
+            },
+            "mqtt_online": {
+                "name": "MQTT"
+            }
+        },
+        "button": {
+            "save_default_config": {
+                "name": "Enregistrer la configuration par défaut"
+            },
+            "reboot": {
+                "name": "Redémarrer"
+            },
+            "reset_pir_time_0": {
+                "name": "Réinitialiser le délai PIR"
+            },
+            "reset_pir_time_1": {
+                "name": "Réinitialiser le délai PIR interne"
+            }
+        },
+        "cover": {
+            "blind": {
+                "name": "Store {position}"
+            },
+            "blind_named": {
+                "name": "{name}"
+            }
+        },
+        "event": {
+            "button": {
+                "name": "Bouton {position}",
+                "state": {
+                    "p": "Appuyé",
+                    "r": "Relâché",
+                    "h": "Maintenu",
+                    "m1": "Clic simple",
+                    "m2": "Double clic",
+                    "m3": "Triple clic",
+                    "m4": "Quadruple clic",
+                    "m5": "Quintuple clic"
+                }
+            },
+            "pir_0": {
+                "name": "PIR",
+                "state": {
+                    "s": "Mouvement",
+                    "ss": "Présence",
+                    "n": "Personne"
+                }
+            },
+            "pir_1": {
+                "name": "PIR interne",
+                "state": {
+                    "s": "Mouvement",
+                    "ss": "Présence",
+                    "n": "Personne"
+                }
+            }
+        },
+        "fan": {
+            "fan": {
+                "name": "Ventilateur {position}"
+            },
+            "fan_named": {
+                "name": "{name}"
+            }
+        },
+        "light": {
+            "front": {
+                "name": "LED de façade"
+            },
+            "dimmer": {
+                "name": "Lumière {position}"
+            },
+            "dimmer_named": {
+                "name": "{name}"
+            },
+            "ddi": {
+                "name": "Canal DDI {position}"
+            },
+            "ddi_named": {
+                "name": "{name}"
+            }
+        },
+        "number": {
+            "temperature_offset": {
+                "name": "Décalage de température"
+            }
+        },
+        "sensor": {
+            "brightness": {
+                "name": "Luminosité"
+            },
+            "light_state": {
+                "name": "État lumineux",
+                "state": {
+                    "day": "Jour",
+                    "twilight": "Crépuscule",
+                    "night": "Nuit"
+                }
+            },
+            "room_temperature": {
+                "name": "Température de la pièce"
+            },
+            "uncompensated_temperature": {
+                "name": "Température non compensée"
+            },
+            "cpu_temperature": {
+                "name": "Température du CPU"
+            },
+            "puck_temperature": {
+                "name": "Température du puck"
+            },
+            "fet_temperature": {
+                "name": "Température FET"
+            },
+            "dyn_light": {
+                "name": "Éclairage adaptatif",
+                "state": {
+                    "day": "Jour",
+                    "twilight": "Crépuscule",
+                    "night": "Nuit"
+                }
+            },
+            "output_power": {
+                "name": "Puissance sortie {position}"
+            },
+            "output_power_named": {
+                "name": "Puissance {name}"
+            },
+            "output_energy": {
+                "name": "Énergie sortie {position}"
+            },
+            "output_energy_named": {
+                "name": "Énergie {name}"
+            },
+            "state_time": {
+                "name": "Horodatage d’état"
+            },
+            "config_timestamp": {
+                "name": "Horodatage de configuration"
+            },
+            "diag_free": {
+                "name": "Mémoire libre"
+            },
+            "diag_largest_free_block": {
+                "name": "Plus grand bloc libre"
+            }
+        },
+        "switch": {
+            "mqtt_enable": {
+                "name": "Activer MQTT"
+            },
+            "power_socket": {
+                "name": "Prise {position}"
+            },
+            "power_socket_named": {
+                "name": "{name}"
+            }
+        },
+        "text": {
+            "mqtt_uri": {
+                "name": "URI MQTT"
+            },
+            "mqtt_server_crt": {
+                "name": "Certificat serveur MQTT"
+            }
+        }
+    },
+    "issues": {
+        "output_energy_dropped": {
+            "title": "Capteurs d’énergie retirés",
+            "description": "L’API Dingz n’expose que la puissance instantanée (W), pas l’énergie cumulée (Wh). Recréez un helper Home Assistant « Intégration (Riemann) » à partir du capteur de puissance si vous en avez besoin."
+        }
+    }
+}

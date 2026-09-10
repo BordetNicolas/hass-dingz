@@ -1,0 +1,12 @@
+# artifacts
+__pycache__
+.pytest*
+*.egg-info/
+*/build/*
+*/dist/*
+.venv/
+
+# misc
+.coverage
+coverage.xml
+uv.lock
