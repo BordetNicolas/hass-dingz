@@ -18,6 +18,8 @@ updates:
       - dependency-name: "pytest"
       - dependency-name: "pytest-asyncio"
       - dependency-name: "pytest-homeassistant-custom-component"
+      # pycares 5 breaks the aiodns version shipped with homeassistant.
+      - dependency-name: "pycares"
     groups:
       pip-dependencies:
         patterns: [ "*" ]
