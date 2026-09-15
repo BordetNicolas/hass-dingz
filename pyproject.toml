@@ -6,10 +6,11 @@ requires-python = ">=3.13.2"
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8.0,<9",
-    "pytest-asyncio>=0.23,<1.0",
+    "pytest==8.4.1",
+    "pytest-asyncio==1.1.0",
     "pytest-aiohttp>=1.0.0",
-    "pytest-homeassistant-custom-component>=0.13.154",
+    "pytest-homeassistant-custom-component==0.13.269",
+    "pycares<5",
 ]
 
 [build-system]
