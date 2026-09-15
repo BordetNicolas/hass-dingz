@@ -13,6 +13,11 @@ updates:
     ignore:
       # Dependabot should not update Home Assistant as that should match the homeassistant key in hacs.json
       - dependency-name: "homeassistant"
+      # These test dependencies are pinned to the exact versions required by the
+      # pytest-homeassistant-custom-component release compatible with homeassistant.
+      - dependency-name: "pytest"
+      - dependency-name: "pytest-asyncio"
+      - dependency-name: "pytest-homeassistant-custom-component"
     groups:
       pip-dependencies:
         patterns: [ "*" ]
