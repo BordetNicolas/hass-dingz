@@ -203,5 +203,21 @@
             "title": "Energiesensoren werden nicht mehr bereitgestellt",
             "description": "Die dingz Energiesensoren wurden nie vom dingz-Gerät selbst bereitgestellt. Vielmehr hat die Integration automatisch einen Integrationssensor für den Leistungssensor eingerichtet. Änderungen in Home Assistant machen diesen Ansatz schwierig. Bitte erstelle den Integrationssensor manuell neu, wenn du ihn verwendest."
         }
+    },
+    "services": {
+        "set_position_and_tilt": {
+            "name": "Position und Lamellen setzen",
+            "description": "Fährt die Jalousie und stellt die Lamellen mit einem einzigen Befehl.",
+            "fields": {
+                "position": {
+                    "name": "Position",
+                    "description": "Jalousieposition (0 = geschlossen, 100 = offen)."
+                },
+                "tilt_position": {
+                    "name": "Lamellen",
+                    "description": "Lamellenstellung (0 = geschlossen, 100 = offen)."
+                }
+            }
+        }
     }
 }

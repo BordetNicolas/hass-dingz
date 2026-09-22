@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components.cover import (
     ATTR_POSITION,
     ATTR_TILT_POSITION,
@@ -9,6 +10,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import api
@@ -25,6 +27,10 @@ from .entity import (
     entity_unique_id,
 )
 from .models import InternalNotification, MotorMotion, MotorStateNotification
+
+SERVICE_SET_POSITION_AND_TILT = "set_position_and_tilt"
+
+_PERCENT = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
 
 
 async def async_setup_entry(
@@ -48,6 +54,18 @@ async def async_setup_entry(
         entities.append(Blind(runtime, index=index))
 
     async_add_entities(entities)
+
+    # Position et lamelles en une seule commande : le firmware enchaîne les deux
+    # mouvements, alors que deux appels séparés s'interrompraient.
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_SET_POSITION_AND_TILT,
+        {
+            vol.Required(ATTR_POSITION): _PERCENT,
+            vol.Required(ATTR_TILT_POSITION): _PERCENT,
+        },
+        "async_set_position_and_tilt",
+    )
 
 
 class Blind(
@@ -170,5 +188,13 @@ class Blind(
     async def async_set_cover_tilt_position(self, **kwargs: Any) -> None:
         await self.runtime.client.move_blind_position(
             self._index, lamella=kwargs[ATTR_TILT_POSITION]
+        )
+        await self.delayed_request_refresh()
+
+    async def async_set_position_and_tilt(
+        self, *, position: int, tilt_position: int
+    ) -> None:
+        await self.runtime.client.move_blind_position(
+            self._index, blind=position, lamella=tilt_position
         )
         await self.delayed_request_refresh()

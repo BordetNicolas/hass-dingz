@@ -203,5 +203,21 @@
             "title": "Capteurs d’énergie retirés",
             "description": "L’API Dingz n’expose que la puissance instantanée (W), pas l’énergie cumulée (Wh). Recréez un helper Home Assistant « Intégration (Riemann) » à partir du capteur de puissance si vous en avez besoin."
         }
+    },
+    "services": {
+        "set_position_and_tilt": {
+            "name": "Définir position et lamelles",
+            "description": "Déplace le store et oriente ses lamelles en une seule commande.",
+            "fields": {
+                "position": {
+                    "name": "Position",
+                    "description": "Position du store (0 = fermé, 100 = ouvert)."
+                },
+                "tilt_position": {
+                    "name": "Lamelles",
+                    "description": "Position des lamelles (0 = fermées, 100 = ouvertes)."
+                }
+            }
+        }
     }
 }

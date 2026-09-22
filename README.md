@@ -37,6 +37,19 @@ Un Dingz physique correspond à un Device Home Assistant. Seules les fonctions r
 
 L’API REST Dingz n’expose **pas** d’énergie cumulée (Wh), seulement la puissance instantanée. Pour l’énergie, créez un helper Home Assistant [Intégration (Riemann)](https://www.home-assistant.io/integrations/integration/) sur le capteur de puissance.
 
+## Actions
+
+`dingz.set_position_and_tilt` déplace un store et oriente ses lamelles en **une seule commande** (les actions `cover.*` standard n’envoient que l’un ou l’autre, et deux appels successifs s’interrompent) :
+
+```yaml
+action: dingz.set_position_and_tilt
+target:
+  entity_id: cover.salon_store
+data:
+  position: 0        # store fermé
+  tilt_position: 100 # lamelles ouvertes
+```
+
 ## MQTT (optionnel)
 
 REST reste la source de vérité et le seul chemin de commande. MQTT, s’il est disponible via l’intégration MQTT de Home Assistant, pousse les changements (boutons, PIR, lumières, stores) sans attendre le prochain polling (10 s).

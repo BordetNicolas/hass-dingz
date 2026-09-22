@@ -89,3 +89,11 @@ async def test_cover_positions_and_commands() -> None:
     runtime.client.move_blind.assert_any_await(0, "down")
     runtime.client.move_blind.assert_any_await(0, "stop")
     runtime.client.move_blind_position.assert_awaited()
+
+
+async def test_cover_set_position_and_tilt() -> None:
+    runtime = _runtime()
+    entity = Blind(runtime, index=1)
+    with patch("custom_components.dingz.entity.COMMAND_REFRESH_DELAY", 0):
+        await entity.async_set_position_and_tilt(position=0, tilt_position=100)
+    runtime.client.move_blind_position.assert_awaited_once_with(1, blind=0, lamella=100)

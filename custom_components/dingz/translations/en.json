@@ -203,5 +203,21 @@
             "title": "Energy sensors no longer provided",
             "description": "The dingz energy sensors were never actually provided by the dingz device itself. Rather, the integration automatically set up an integration sensor for the power sensor. Recent changes in Home Assistant broke this somewhat hacky approach. Please manually re-create the integration sensor if you're using it."
         }
+    },
+    "services": {
+        "set_position_and_tilt": {
+            "name": "Set position and tilt",
+            "description": "Moves the blind and its slats in a single command.",
+            "fields": {
+                "position": {
+                    "name": "Position",
+                    "description": "Blind position (0 = closed, 100 = open)."
+                },
+                "tilt_position": {
+                    "name": "Tilt position",
+                    "description": "Slat position (0 = closed, 100 = open)."
+                }
+            }
+        }
     }
 }
