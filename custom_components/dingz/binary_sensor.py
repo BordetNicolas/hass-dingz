@@ -11,9 +11,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import api, capabilities
-from .coordinator import DingzConfigEntry, DingzRuntime
+from .coordinator import DingzConfigEntry, DingzCoordinator, DingzRuntime
 from .entity import (
     CoordinatedNotificationStateEntity,
+    DingzEntity,
     InternalNotificationMixin,
     UserAssignedNameMixin,
     clean_name,
@@ -41,8 +42,14 @@ async def async_setup_entry(
         if dingz_input.get("active", False):
             entities.append(Input(runtime, index=index))
 
-    for index in capabilities.enabled_pirs(runtime.coordinator.data or {}):
+    state = runtime.coordinator.data or {}
+    for index in capabilities.enabled_pirs(state):
         entities.append(Motion(runtime, index=index))
+
+    if capabilities.thermostat_active(state) and capabilities.has_frost_protection(
+        state
+    ):
+        entities.append(FrostProtection(runtime.coordinator))
 
     async_add_entities(entities)
 
@@ -169,3 +176,22 @@ class MqttOnline(InternalNotificationMixin, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self._online
+
+
+class FrostProtection(DingzEntity, BinarySensorEntity):
+    """Thermostat frost protection flag reported by firmware 2.6.0+."""
+
+    _attr_translation_key = "frost_protection"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: DingzCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(coordinator.runtime, "frost_protection")
+
+    @property
+    def is_on(self) -> bool | None:
+        thermostat = (self.coordinator.data or {}).get("thermostat")
+        if not isinstance(thermostat, dict):
+            return None
+        value = thermostat.get("frost_protection")
+        return value if isinstance(value, bool) else None

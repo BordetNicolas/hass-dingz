@@ -54,6 +54,9 @@
             },
             "motion_2": {
                 "name": "Mouvement PIR 3"
+            },
+            "frost_protection": {
+                "name": "Protection antigel"
             }
         },
         "button": {

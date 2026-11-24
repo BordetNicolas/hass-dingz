@@ -307,3 +307,49 @@ async def test_thermostat_partial_payload(
     assert state.attributes["min_temp"] == -55
     assert state.attributes["max_temp"] == 125
     assert state.attributes.get("hvac_action") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        # 2.4.3 does not report frost protection: no entity.
+        ("fw243_dip1_blind_smartlight", None),
+        ("fw260_dip3_input_pir", "on"),
+    ],
+)
+async def test_frost_protection_capability(
+    hass: HomeAssistant, mock_dingz_client, mock_mqtt_disabled, name, expected
+) -> None:
+    raw = devices.load(name)
+    raw["state"]["thermostat"].update(active=True, enabled=True, mode="heating")
+    if "frost_protection" in raw["state"]["thermostat"]:
+        raw["state"]["thermostat"]["frost_protection"] = True
+    entry = await _setup(hass, mock_dingz_client, raw)
+    uids = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    if expected is None:
+        assert f"{entry.unique_id}_frost_protection" not in uids
+        return
+    entity_id = _entity(hass, entry, "frost_protection")
+    assert hass.states.get(entity_id).state == expected
+
+    raw["state"]["thermostat"]["frost_protection"] = "unexpected"
+    mock_dingz_client.get_state.return_value = raw["state"]
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "unknown"
+
+
+async def test_inactive_thermostat_has_no_frost_protection(
+    hass: HomeAssistant, mock_dingz_client, mock_mqtt_disabled
+) -> None:
+    raw = devices.load("fw260_dip3_input_pir")  # thermostat inactive on 2.6.0
+    entry = await _setup(hass, mock_dingz_client, raw)
+    uids = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    assert f"{entry.unique_id}_frost_protection" not in uids
+    assert f"{entry.unique_id}_climate" not in uids

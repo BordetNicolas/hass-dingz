@@ -121,6 +121,14 @@ def thermostat_active(state: Mapping[str, Any]) -> bool:
     return isinstance(thermostat, Mapping) and bool(thermostat.get("active", False))
 
 
+def has_frost_protection(state: Mapping[str, Any]) -> bool:
+    """Firmware 2.6.0 reports ``thermostat.frost_protection``."""
+    thermostat = state.get("thermostat")
+    return isinstance(thermostat, Mapping) and isinstance(
+        thermostat.get("frost_protection"), bool
+    )
+
+
 def firmware_version(device: Mapping[str, Any]) -> AwesomeVersion | None:
     """Semantic firmware version, or None when missing or unparsable."""
     raw = device.get("fw_version")

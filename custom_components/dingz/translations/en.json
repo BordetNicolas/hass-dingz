@@ -54,6 +54,9 @@
             },
             "motion_2": {
                 "name": "PIR 3 motion"
+            },
+            "frost_protection": {
+                "name": "Frost protection"
             }
         },
         "button": {
