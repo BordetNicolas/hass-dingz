@@ -33,7 +33,7 @@ Installation manuelle, hôte invalide, doublon (et mise à jour d'adresse), déc
 
 | Indicateur | Avant | Après |
 | --- | --- | --- |
-| Tests | 49 | 135 |
+| Tests | 49 | 136 |
 | Couverture | 80 % | 95,3 % |
 | mypy | 6 erreurs (non strict) | 0 (strict) |
 | HA 2025.8.0 / 2026.10.4 | ✅ / ✅ | ✅ / ✅ |
@@ -47,6 +47,9 @@ Opérations en lecture seule uniquement (aucune commande, aucune modification de
 | GET de tous les endpoints de configuration et d'état sur 12 dingz (11 × 2.6.0, 1 × 2.4.3) | ✅ 200 partout |
 | Client REST de l'intégration + détection des capacités exécutés contre les 12 dingz (`GET` uniquement) | ✅ entités attendues calculées, cohérentes avec HA (23 lumières fantômes `unknown` supprimées, 3 lumières réelles conservées) |
 | Abonnement MQTT passif 15 min (`dingz/#`) | ✅ topics et index confirmés, unité d'énergie mesurée |
-| Commandes (lumières, stores, thermostat, LED, redémarrage), configuration MQTT | ⏸ non effectué : autorisation requise |
-| Version modifiée dans une instance HA de test ou de production | ⏸ non effectué : autorisation requise |
+| Instance HA 2026.11.3 jetable avec la version modifiée, 2 dingz (Cuisine Four 2.4.3, Buro étage 2.6.0) | ✅ ajout par le flux de configuration, entités attendues, sans lumière fantôme |
+| Plafonnier 30 % / 100 % (transition 3 s) / éteint (Buro étage) | ✅ dingz et observation visuelle |
+| Store 0 → 10 % → 0 % (Cuisine Four, Buro étage) | ✅ dingz et observation visuelle |
+| LED de façade (Cuisine Four, Buro étage) | ⚠️ le dingz enregistre la couleur mais la LED reste blanche : probable réécriture par le mode « LED selon le soleil » |
+| Thermostat, redémarrage, configuration MQTT, production | ⏸ non effectué |
 | Thermostat, DDI, ventilateur, protection antigel | ⛔ bloqué : aucun matériel configuré ainsi |

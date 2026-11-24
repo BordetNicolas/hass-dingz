@@ -1,6 +1,6 @@
 # Changelog
 
-## [Non publié]
+## [1.3.0] - 2026-11-24
 
 ### ⚠️ À lire avant la mise à jour
 
@@ -25,6 +25,8 @@
 - Erreurs de commande traduites (`HomeAssistantError`) ; boutons indisponibles quand le dingz l'est ; types d'événements inconnus ignorés.
 - Découverte d'un dingz injoignable : abandon propre au lieu d'une exception ; validation de l'hôte saisi.
 - Noms configurés sur le dingz débarrassés des espaces finaux.
+- LED de façade : le fondu (`ramp`) n'est plus envoyé sans transition demandée (il écrasait un réglage permanent du dingz, par exemple 1023 ms → 25 ms).
+- L'import du client MQTT n'a plus lieu quand l'intégration MQTT de Home Assistant n'est pas configurée (avertissements « blocking call »).
 
 ### Fonctionnalités ajoutées (firmwares antérieurs à 2.6.0)
 
@@ -48,6 +50,11 @@
 - `PARALLEL_UPDATES`, icônes, action enregistrée dans `async_setup` (HA récents), typage `mypy --strict`, couverture 95 % imposée en CI, job de tests sur le dernier Home Assistant.
 - Fixtures de tests issues de réponses réelles anonymisées (2.4.3 et 2.6.0).
 
+### Validation
+
+Testé en conditions réelles (lecture sur 12 dingz, puis commandes sur deux dingz avec une instance Home Assistant 2026.11.3 jetable) : plafonnier (30 %, 100 % avec transition, extinction), store (0 → 10 % → 0 %, dans les deux sens), état identique côté dingz et côté Home Assistant. Détails dans [docs/testing.md](docs/testing.md).
+
 ### Limitations restantes
 
-Voir [docs/audit.md](docs/audit.md#anomalies-restantes).
+- La LED de façade d'un dingz réglé pour suivre le soleil (blanc le jour, bleu la nuit, orange au lever/coucher) n'affiche pas la couleur envoyée par l'API : le dingz l'enregistre mais la réécrase (observé sur 2.4.3, hypothèse non confirmée). Désactivez ce mode dans la configuration du dingz pour commander la LED.
+- Voir aussi [docs/audit.md](docs/audit.md#anomalies-restantes).
