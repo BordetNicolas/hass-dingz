@@ -36,6 +36,9 @@ class StateDimmer(TypedDict, total=False):
     output: int
     ramp: int
     readonly: bool
+    off_timer_type: str
+    off_timer_id: int
+    off_timer_value: int
     index: Index
 
 
@@ -98,6 +101,8 @@ class StateSensors(TypedDict, total=False):
 
 class StateDynLight(TypedDict, total=False):
     mode: str
+    weather_dl_override: bool
+    """Firmware 2.6.0+."""
 
 
 ThermostatModeEnum = Literal["off"] | Literal["heating"] | Literal["cooling"]
@@ -108,10 +113,15 @@ class StateThermostat(TypedDict, total=False):
     active: bool
     state: ThermostatStateEnum
     mode: ThermostatModeEnum
+    user_mode: str
     enabled: bool
-    target_temp: int
-    min_target_temp: int
-    max_target_temp: int
+    target_temp: float
+    min_target_temp: float
+    max_target_temp: float
+    cooling: bool
+    free_cooling: bool
+    frost_protection: bool
+    """Firmware 2.6.0+."""
     temp: float
 
 
@@ -127,8 +137,12 @@ class StateWifi(TypedDict, total=False):
     connected: bool
 
 
-class StateConfig:
+class StateConfig(TypedDict, total=False):
     timestamp: int
+
+
+class StateCloud(TypedDict, total=False):
+    aws: str
 
 
 class StateDdiChannel(TypedDict, total=False):
@@ -153,6 +167,7 @@ class State(TypedDict, total=False):
     thermostat: StateThermostat
     wifi: StateWifi
     config: StateConfig
+    cloud: StateCloud
     ddi_channels: list[StateDdiChannel]
     time: str
 
@@ -180,6 +195,7 @@ class Device(TypedDict, total=False):
     front_sn: str
     front_color: str
     has_pir: bool
+    first_boot: bool
     hash: str
 
 
@@ -237,6 +253,10 @@ class SystemConfig(TypedDict, total=False):
     sunrise: TimeOfDay
     sunset: TimeOfDay
     system_status: str
+    keep_alive: Any
+    """Firmware 2.6.0+."""
+    installer_config: dict[str, Any]
+    """Firmware 2.6.0+."""
 
 
 class OutputConfigFeedback(TypedDict, total=False):
@@ -400,13 +420,18 @@ class ServicesConfig(TypedDict, total=False):
     mdns_search_period: int
     remote_buttons: ServicesConfigRemoteButtons
     mqtt: ServicesConfigMqtt
+    aws_default_cert: Any
 
 
 class ThermostatConfig(TypedDict, total=False):
     active: bool
-    min_target_temp: int
-    max_target_temp: int
-    target_temp: int
+    min_target_temp: float
+    max_target_temp: float
+    target_temp: float
+    frost_protection: bool
+    """Firmware 2.6.0+."""
+    frost_min_temp: float
+    """Firmware 2.6.0+."""
     cooling: bool
     enable: bool
     fahrenheit: bool
@@ -483,15 +508,15 @@ class _ReqThrottleLock(asyncio.Lock):
 
     async def acquire(self) -> Literal[True]:
         res = await super().acquire()
-        if self._last_release_at:
-            passed = time.time() - self._last_release_at
+        if self._last_release_at is not None:
+            passed = time.monotonic() - self._last_release_at
             remaining = self.throttle_duration - passed
             if remaining > 0:
                 await asyncio.sleep(remaining)
         return res
 
     def release(self) -> None:
-        self._last_release_at = time.time()
+        self._last_release_at = time.monotonic()
         return super().release()
 
 
@@ -537,7 +562,7 @@ class Client:
                 return await _repeat(once, attempts=attempts, retry_delay=retry_delay)
         except aiohttp.ClientResponseError as exc:
             # Getting back a 5xx code usually means the device doesn't have enough ram.
-            if check_out_of_ram and exc.code >= 500 and exc.code < 600:
+            if check_out_of_ram and 500 <= exc.status < 600:
                 _LOGGER.warning("Checking if device is out of RAM.")
                 await self._assert_enough_ram()
             raise
@@ -568,7 +593,7 @@ class Client:
                 resp.raise_for_status()
 
         async with self._lock:
-            return await _repeat(once, attempts=attempts, retry_delay=retry_delay)
+            await _repeat(once, attempts=attempts, retry_delay=retry_delay)
 
     async def _post_services_config(self, config: ServicesConfig) -> None:
         await self._post("services_config", cast(dict[str, Any], config))
@@ -577,7 +602,7 @@ class Client:
         await self._post("system_config", cast(dict[str, Any], config))
 
     async def get_ram(self) -> Ram:
-        return await self._get("ram", check_out_of_ram=False)
+        return cast(Ram, await self._get("ram", check_out_of_ram=False))
 
     async def _assert_enough_ram(self) -> None:
         ram = await self.get_ram()
@@ -592,42 +617,42 @@ class Client:
             )
 
     async def get_state(self) -> State:
-        return await self._get("state")
+        return cast(State, await self._get("state"))
 
     async def get_device(self) -> DeviceResponseT:
-        return await self._get("device")
+        return cast(DeviceResponseT, await self._get("device"))
 
     async def get_info(self) -> dict[str, Any]:
-        return await self._get("info")
+        return cast(dict[str, Any], await self._get("info"))
 
     async def get_system_config(self) -> SystemConfig:
-        return await self._get("system_config")
+        return cast(SystemConfig, await self._get("system_config"))
 
     async def get_output_config(self) -> OutputConfigs:
-        return await self._get("output_config")
+        return cast(OutputConfigs, await self._get("output_config"))
 
     async def get_input_config(self) -> InputConfigs:
-        return await self._get("input_config")
+        return cast(InputConfigs, await self._get("input_config"))
 
     async def get_services_config(self) -> ServicesConfig:
-        return await self._get("services_config")
+        return cast(ServicesConfig, await self._get("services_config"))
 
     async def get_buttons_config(self) -> ButtonsConfig:
-        return await self._get("button_config")
+        return cast(ButtonsConfig, await self._get("button_config"))
 
     async def get_blinds_config(self) -> BlindConfigs:
-        return await self._get("blind_config")
+        return cast(BlindConfigs, await self._get("blind_config"))
 
     async def get_ddi_channels_config(self) -> list[DdiChannelConfig]:
         data = await self._get(
             "ddi_channels_config",
             allow_404=True,  # Devices without DDI support will return 404
         )
-        try:
-            return data["ddi_channels"]
-        except (TypeError, KeyError):
-            # Either data is None, or it doesn't have the expected structure
-            return []
+        channels = data.get("ddi_channels") if isinstance(data, dict) else None
+        # Either data is None, or it doesn't have the expected structure
+        return (
+            cast(list[DdiChannelConfig], channels) if isinstance(channels, list) else []
+        )
 
     async def get_full_device_config(self) -> FullDeviceConfig:
         devices = await self.get_device()
@@ -662,6 +687,23 @@ class Client:
 
     async def update_thermostat_config(self, config: ThermostatConfig) -> None:
         await self._post("thermostat_config", cast(dict[str, Any], config))
+
+    async def set_thermostat(
+        self, *, target_temp: float | None = None, enable: bool | None = None
+    ) -> None:
+        """POST /thermostat[?target_temp=<REAL>][&enable=<BOOL>] (playground v2)."""
+        params: dict[str, Any] = {}
+        if target_temp is not None:
+            params["target_temp"] = target_temp
+        if enable is not None:
+            params["enable"] = "true" if enable else "false"
+        await self._post("thermostat", params, as_query_params=True)
+
+    async def set_thermostat_mode(
+        self, mode: Literal["heating"] | Literal["cooling"]
+    ) -> None:
+        """POST /thermostat/mode/<cooling|heating> (playground v2)."""
+        await self._post(f"thermostat/mode/{mode}", {})
 
     async def set_temp_offset(self, offset: float) -> None:
         await self._post_system_config(SystemConfig(temp_offset=offset))
@@ -760,20 +802,28 @@ class Client:
         await self._post("save_default_config", {})
 
     async def reboot(self) -> None:
-        await self._post("reboot", {})
+        # Never repeat: a retried reboot could restart the device twice.
+        await self._post("reboot", {}, attempts=1)
 
 
 async def _repeat(
     once_fn: Callable[[], Awaitable[Any]], *, attempts: int, retry_delay: float
 ) -> Any:
-    last_exc = ValueError("no attempts made")
-    for _ in range(attempts):
+    last_exc: Exception = ValueError("no attempts made")
+    for attempt in range(attempts):
         try:
             return await once_fn()
+        except aiohttp.ClientResponseError as exc:
+            # A rejected request will be rejected again.
+            if 400 <= exc.status < 500:
+                raise
+            _LOGGER.debug("client error: %s", exc)
+            last_exc = exc
         except (aiohttp.ClientError, TimeoutError) as exc:
             _LOGGER.debug("client error: %s", exc)
             last_exc = exc
-        await asyncio.sleep(retry_delay)
+        if attempt + 1 < attempts:
+            await asyncio.sleep(retry_delay)
 
     raise last_exc
 

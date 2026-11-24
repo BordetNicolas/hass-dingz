@@ -1,21 +1,35 @@
 """Conversions between Dingz API values and Home Assistant entity values."""
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Final
 
-from homeassistant.components.climate import HVACAction, HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from . import api
 
+# Documented ranges (playground v2): dimmer ``time`` 0.01-10.00 s,
+# LED ``ramp`` 0-4095 ms.
+DIMMER_TIME_MIN: Final = 0.01
+DIMMER_TIME_MAX: Final = 10.0
+LED_RAMP_MAX_MS: Final = 4095
 
-def brightness_dingz_to_ha(value: int) -> int:
+
+def brightness_dingz_to_ha(value: float) -> int:
     """Convert a Dingz brightness (0-100) to Home Assistant (0-255)."""
-    return 255 * value // 100
+    value = min(max(value, 0), 100)
+    return round(255 * value / 100)
 
 
-def brightness_ha_to_dingz(value: int) -> int:
-    """Convert a Home Assistant brightness (0-255) to Dingz (0-100)."""
-    return 100 * value // 255
+def brightness_ha_to_dingz(value: float) -> int:
+    """Convert a Home Assistant brightness (0-255) to Dingz (0-100).
+
+    Any non-zero brightness maps to at least 1 so that a dim request never
+    turns into a request for 0 %.
+    """
+    value = min(max(value, 0), 255)
+    if value == 0:
+        return 0
+    return max(1, round(100 * value / 255))
 
 
 def parse_hsv(raw: str) -> tuple[int, int, int] | None:
@@ -37,7 +51,29 @@ def hsv_to_led_color(hue: float, saturation: float, brightness_ha: int) -> str:
 def transition_to_ramp_ms(transition: float | None, default: float = 0.01) -> int:
     """Convert a Home Assistant transition (seconds) to a Dingz LED ramp (ms)."""
     seconds = default if transition is None else transition
-    return int(1000 * seconds)
+    return min(max(int(1000 * seconds), 0), LED_RAMP_MAX_MS)
+
+
+def transition_to_dimmer_time(transition: float | None) -> float | None:
+    """Convert a Home Assistant transition to the dimmer ``time`` parameter."""
+    if transition is None:
+        return None
+    return round(min(max(transition, DIMMER_TIME_MIN), DIMMER_TIME_MAX), 2)
+
+
+def _percent(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(min(max(value, 0), 100))
+
+
+def _blind_value(blind: Mapping[str, Any], key: str, current_key: str) -> int | None:
+    if (value := _percent(blind.get(key))) is not None:
+        return value
+    current = blind.get("current")
+    if isinstance(current, Mapping):
+        return _percent(current.get(current_key))
+    return None
 
 
 def cover_position_from_state(blind: Mapping[str, Any]) -> int | None:
@@ -46,29 +82,18 @@ def cover_position_from_state(blind: Mapping[str, Any]) -> int | None:
     Firmware 2.x uses ``position``. The official playground still documents
     ``current.blind``; both are accepted.
     """
-    if (position := blind.get("position")) is not None:
-        return position
-    current = blind.get("current")
-    if isinstance(current, dict) and (position := current.get("blind")) is not None:
-        return position
-    return None
+    return _blind_value(blind, "position", "blind")
 
 
 def cover_tilt_from_state(blind: Mapping[str, Any]) -> int | None:
     """Return slat/lamella position (0=closed, 100=open) from a Dingz blind state."""
-    if (lamella := blind.get("lamella")) is not None:
-        return lamella
-    current = blind.get("current")
-    if isinstance(current, dict) and (lamella := current.get("lamella")) is not None:
-        return lamella
-    return None
+    return _blind_value(blind, "lamella", "lamella")
 
 
 def cover_moving_from_state(blind: Mapping[str, Any]) -> str | None:
     """Return ``up``, ``down`` or ``stop`` from a Dingz blind state."""
-    if (moving := blind.get("moving")) is not None:
-        return moving
-    return None
+    moving = blind.get("moving")
+    return moving if isinstance(moving, str) else None
 
 
 def optional_float(value: Any) -> float | None:
