@@ -7,6 +7,7 @@ Topics observed on firmware 2.4.3 and 2.6.0 (``<id>`` is the lower-case MAC,
 - ``dingz/<id>/<model>/state/light/<relative dimmer>`` (JSON)
 - ``dingz/<id>/<model>/state/motor/<relative motor>`` (JSON)
 - ``dingz/<id>/<model>/state/input/<n>`` (``0``/``1``)
+- ``dingz/<id>/<model>/event/button/4`` (button connected to the input)
 - ``dingz/<id>/<model>/sensor/<light|temperature>`` (number)
 - ``dingz/<id>/<model>/power/<light|motor>/<relative index>`` (W)
 - ``dingz/<id>/<model>/energy/<light|motor>/<relative index>`` (counter)
@@ -30,6 +31,11 @@ from homeassistant.components.mqtt.subscription import (
 )
 from homeassistant.core import callback
 
+from .const import (
+    INPUT_BUTTON_TYPES,
+    MQTT_INPUT_BUTTON_INDEX,
+    MQTT_INPUT_STATE_INDEX,
+)
 from .coordinator import DingzRuntime
 from .models import (
     ButtonNotification,
@@ -45,11 +51,6 @@ from .models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# The input is published as the fifth "button" (0-based index 4), matching the
-# REST button API where index 5 (1-based) is the input. Index 0 carries a
-# different value on firmware 2.6.0 and is ignored.
-MQTT_INPUT_INDEX = 4
 
 
 async def async_setup_mqtt(runtime: DingzRuntime) -> Callable[[], None] | None:
@@ -178,7 +179,7 @@ class _MqttHandler:
 
     @callback
     def handle_input(self, msg: mqtt.ReceiveMessage) -> None:
-        if _topic_index(msg.topic) != MQTT_INPUT_INDEX:
+        if _topic_index(msg.topic) != self._input_topic_index():
             return
         on = _text(msg) == "1"
         self._patch_input(on)
@@ -217,6 +218,15 @@ class _MqttHandler:
         self._dispatch(
             EnergyNotification(kind=cast(Any, levels[-2]), index=index, value=value)
         )
+
+    def _input_topic_index(self) -> int:
+        inputs = self.runtime.device_config.inputs
+        input_type = None
+        if inputs and isinstance(inputs[0], dict):
+            input_type = (inputs[0].get("input") or {}).get("type")
+        if input_type in INPUT_BUTTON_TYPES:
+            return MQTT_INPUT_BUTTON_INDEX
+        return MQTT_INPUT_STATE_INDEX
 
     def _state(self) -> dict[str, Any] | None:
         data = self.runtime.coordinator.data

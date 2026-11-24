@@ -47,7 +47,7 @@
                 "name": "PIR-Bewegung"
             },
             "motion_1": {
-                "name": "PIR-2-Bewegung"
+                "name": "Externe PIR-Bewegung"
             },
             "mqtt_online": {
                 "name": "MQTT"
@@ -67,7 +67,7 @@
                 "name": "PIR-Zeit zurücksetzen"
             },
             "reset_pir_time_1": {
-                "name": "PIR-2-Zeit zurücksetzen"
+                "name": "Externe PIR-Zeit zurücksetzen"
             },
             "reset_pir_time_2": {
                 "name": "PIR-3-Zeit zurücksetzen"
@@ -104,7 +104,7 @@
                 }
             },
             "pir_1": {
-                "name": "PIR 2",
+                "name": "Externer PIR",
                 "state": {
                     "s": "Bewegung",
                     "ss": "Anwesend",
@@ -117,6 +117,20 @@
                     "s": "Bewegung",
                     "ss": "Anwesend",
                     "n": "Niemand"
+                }
+            },
+            "input_button": {
+                "name": "Eingangstaster",
+                "state": {
+                    "p": "Gedrückt",
+                    "r": "Losgelassen",
+                    "h": "Halten",
+                    "m1": "Klick",
+                    "m2": "Doppelklick",
+                    "m3": "Dreifachklick",
+                    "m4": "Vierfachklick",
+                    "m5": "Fünffachklick",
+                    "t": "Umgeschaltet"
                 }
             }
         },

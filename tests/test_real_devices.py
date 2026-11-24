@@ -149,7 +149,7 @@ async def test_input_and_pirs(
     # Output 0 is read-only (used by the input), outputs 2-3 inactive.
     assert "output_0" not in ids
     assert "output_2" not in ids and "output_3" not in ids
-    assert hass.states.get(ids["pir_1"]).name.endswith("PIR 2 motion")
+    assert hass.states.get(ids["pir_1"]).name.endswith("External PIR motion")
 
 
 async def test_dimmer_commands_use_relative_index(

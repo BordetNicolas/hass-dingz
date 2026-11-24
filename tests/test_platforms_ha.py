@@ -112,7 +112,11 @@ async def test_events_and_mqtt_online(
     runtime.dispatch(ButtonNotification(index=0, event_type="m9"))  # unknown
     runtime.dispatch(PirNotification(index=0, event_type="s"))
     runtime.dispatch(MqttOnlineNotification(online=True))
+    # The button wired to the input (button_toggle) is MQTT button 4.
+    runtime.dispatch(ButtonNotification(index=4, event_type="t"))
     await hass.async_block_till_done()
+    input_button = _entity(hass, entry, "input_button_0")
+    assert hass.states.get(input_button).attributes["event_type"] == "t"
 
     assert hass.states.get(button).attributes["event_type"] == "m2"
     assert hass.states.get(pir).attributes["event_type"] == "s"
@@ -288,3 +292,18 @@ async def test_thermostat(
         blocking=True,
     )
     mock_dingz_client.set_thermostat.assert_awaited_with(target_temp=23)
+
+
+async def test_thermostat_partial_payload(
+    hass: HomeAssistant, mock_dingz_client, mock_mqtt_disabled
+) -> None:
+    """Firmware payloads may omit fields or use false for temperatures."""
+    raw = devices.load("fw243_dip1_blind_smartlight")
+    raw["state"]["thermostat"] = {"active": True, "temp": False, "mode": "auto"}
+    entry = await _setup(hass, mock_dingz_client, raw)
+    state = hass.states.get(_entity(hass, entry, "climate"))
+    assert state.state == "unknown"
+    assert state.attributes["current_temperature"] is None
+    assert state.attributes["min_temp"] == -55
+    assert state.attributes["max_temp"] == 125
+    assert state.attributes.get("hvac_action") is None

@@ -78,7 +78,7 @@ def test_mqtt_pir_and_input() -> None:
     assert pir.index == 0
     assert pir.event_type == "s"
 
-    handler.handle_input(_msg("dingz/id/dz1f-pir/state/input/4", "1"))
+    handler.handle_input(_msg("dingz/id/dz1f-pir/state/input/0", "1"))
     contact = runtime.dispatch.call_args[0][0]
     assert isinstance(contact, InputStateNotification)
     assert contact.on is True
@@ -158,18 +158,33 @@ def test_motor_incomplete_payload() -> None:
     runtime.dispatch.assert_not_called()
 
 
-def test_input_uses_index_4_only() -> None:
-    """Firmware 2.6.0 publishes input/0 = 0 and input/4 = 1 for an active input."""
+def test_input_topic_follows_input_type() -> None:
+    """Official doc: state/input/0 for "state" inputs, button/4 for buttons.
+
+    On 2.6.0 a button_toggle input also publishes state/input/4 (matching
+    REST) next to a stale retained state/input/0.
+    """
     handler, runtime = _handler()
+    runtime.device_config.inputs = [
+        {"active": True, "input": {"type": "button_toggle"}}
+    ]
     handler.handle_input(_msg("dingz/id/m/state/input/0", "0"))
     runtime.dispatch.assert_not_called()
-
     handler.handle_input(_msg("dingz/id/m/state/input/4", b"1"))
     notification = runtime.dispatch.call_args[0][0]
     assert isinstance(notification, InputStateNotification)
     assert notification.on is True
     patched = runtime.coordinator.async_patch_state.call_args[0][0]
     assert patched["sensors"]["input_state"] is True
+
+    handler, runtime = _handler()
+    runtime.device_config.inputs = [
+        {"active": True, "input": {"type": "contact_state"}}
+    ]
+    handler.handle_input(_msg("dingz/id/m/state/input/4", "1"))
+    runtime.dispatch.assert_not_called()
+    handler.handle_input(_msg("dingz/id/m/state/input/0", "1"))
+    assert runtime.dispatch.call_args[0][0].on is True
 
 
 def test_energy_notifications() -> None:

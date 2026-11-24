@@ -47,7 +47,7 @@
                 "name": "PIR Motion"
             },
             "motion_1": {
-                "name": "PIR 2 motion"
+                "name": "External PIR motion"
             },
             "mqtt_online": {
                 "name": "MQTT"
@@ -67,7 +67,7 @@
                 "name": "Reset PIR Time"
             },
             "reset_pir_time_1": {
-                "name": "Reset PIR 2 time"
+                "name": "Reset external PIR time"
             },
             "reset_pir_time_2": {
                 "name": "Reset PIR 3 time"
@@ -104,7 +104,7 @@
                 }
             },
             "pir_1": {
-                "name": "PIR 2",
+                "name": "External PIR",
                 "state": {
                     "s": "Movement",
                     "ss": "Present",
@@ -117,6 +117,20 @@
                     "s": "Movement",
                     "ss": "Present",
                     "n": "Nobody"
+                }
+            },
+            "input_button": {
+                "name": "Input button",
+                "state": {
+                    "p": "Pressed",
+                    "r": "Released",
+                    "h": "Hold",
+                    "m1": "Single-click",
+                    "m2": "Double-click",
+                    "m3": "Triple-click",
+                    "m4": "Quadruple-click",
+                    "m5": "Quintuple-click",
+                    "t": "Toggled"
                 }
             }
         },

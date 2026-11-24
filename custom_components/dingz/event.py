@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import api, capabilities
+from .const import INPUT_BUTTON_TYPES, MQTT_INPUT_BUTTON_INDEX
 from .coordinator import DingzConfigEntry, DingzRuntime
 from .entity import (
     InternalNotificationMixin,
@@ -32,6 +33,14 @@ async def async_setup_entry(
     if capabilities.mqtt_enabled(runtime.device_config):
         for index in capabilities.enabled_pirs(runtime.coordinator.data or {}):
             entities.append(Pir(runtime, index=index))
+
+        input_config = capabilities.item_at(runtime.device_config.inputs, 0)
+        if (
+            isinstance(input_config, dict)
+            and input_config.get("active", False)
+            and (input_config.get("input") or {}).get("type") in INPUT_BUTTON_TYPES
+        ):
+            entities.append(InputButton(runtime))
 
         try:
             buttons = runtime.device_config.buttons["buttons"]
@@ -97,6 +106,30 @@ class Button(InternalNotificationMixin, EventEntity, UserAssignedNameMixin):
         if not (
             isinstance(notification, ButtonNotification)
             and notification.index == self._index
+        ):
+            return
+        _trigger(self, notification.event_type)
+
+
+class InputButton(InternalNotificationMixin, EventEntity):
+    """Button wired to the dingz input, published as MQTT button 4."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "input_button"
+    _attr_device_class = EventDeviceClass.BUTTON
+    # "t" appears for toggle inputs in the official example (FW 2.1.58).
+    _attr_event_types = ["p", "r", "h", "t", "m1", "m2", "m3", "m4", "m5"]
+
+    def __init__(self, runtime: DingzRuntime) -> None:
+        super().__init__(runtime)
+        self._attr_unique_id = entity_unique_id(runtime, "input_button_0")
+        self._attr_device_info = runtime.device_info
+
+    @callback
+    def handle_notification(self, notification: InternalNotification) -> None:
+        if not (
+            isinstance(notification, ButtonNotification)
+            and notification.index == MQTT_INPUT_BUTTON_INDEX
         ):
             return
         _trigger(self, notification.event_type)

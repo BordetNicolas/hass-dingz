@@ -47,7 +47,7 @@
                 "name": "Mouvement PIR"
             },
             "motion_1": {
-                "name": "Mouvement PIR 2"
+                "name": "Mouvement PIR externe"
             },
             "mqtt_online": {
                 "name": "MQTT"
@@ -67,7 +67,7 @@
                 "name": "Réinitialiser le délai PIR"
             },
             "reset_pir_time_1": {
-                "name": "Réinitialiser le délai PIR 2"
+                "name": "Réinitialiser le délai PIR externe"
             },
             "reset_pir_time_2": {
                 "name": "Réinitialiser le délai PIR 3"
@@ -104,7 +104,7 @@
                 }
             },
             "pir_1": {
-                "name": "PIR 2",
+                "name": "PIR externe",
                 "state": {
                     "s": "Mouvement",
                     "ss": "Présence",
@@ -117,6 +117,20 @@
                     "s": "Mouvement",
                     "ss": "Présence",
                     "n": "Personne"
+                }
+            },
+            "input_button": {
+                "name": "Bouton de l’entrée",
+                "state": {
+                    "p": "Appuyé",
+                    "r": "Relâché",
+                    "h": "Maintenu",
+                    "m1": "Clic simple",
+                    "m2": "Double clic",
+                    "m3": "Triple clic",
+                    "m4": "Quadruple clic",
+                    "m5": "Quintuple clic",
+                    "t": "Basculé"
                 }
             }
         },

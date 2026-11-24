@@ -24,3 +24,12 @@ GET_ATTEMPTS: Final = 5
 GET_RETRY_DELAY: Final = 1.0
 POST_ATTEMPTS: Final = 3
 POST_RETRY_DELAY: Final = 3.0
+
+# "dingz MQTT topics" (iolo, FW 2.1.58, Jan 2025): state/input/0 is published
+# only for inputs of type "state"; a button connected to the input reports on
+# event/button/4. On 2.6.0, a button_toggle input also publishes
+# state/input/4 matching REST, while a stale retained state/input/0 may
+# remain: only the topic matching the configured type is used.
+MQTT_INPUT_STATE_INDEX: Final = 0
+MQTT_INPUT_BUTTON_INDEX: Final = 4
+INPUT_BUTTON_TYPES: Final = frozenset({"button_push", "button_toggle"})
