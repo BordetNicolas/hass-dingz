@@ -44,8 +44,7 @@ People *love* thorough bug reports. I'm not even kidding.
 
 ## Use a Consistent Coding Style
 
-Use [black](https://github.com/ambv/black) to make sure the code follows the style.
-Sort your imports using [isort](https://pycqa.github.io/isort/).
+Use [Ruff](https://docs.astral.sh/ruff/) (`./scripts/lint.sh`) for linting, import sorting and formatting, and keep `mypy` (strict) and `pytest --cov` (95 % minimum) passing.
 
 ## Test your code modification
 

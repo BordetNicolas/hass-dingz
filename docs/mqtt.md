@@ -2,10 +2,20 @@
 
 The dingz firmware has a somewhat hidden feature that allows it to connect to an [MQTT](https://mqtt.org) broker.
 
-The MQTT topics (`dingz/{id}/+/event/button/{n}`, `.../event/pir/{n}`, `.../state/light/{n}`, `.../state/motor/{n}`, `.../state/input/{n}`, `.../sensor/{light|temperature}`, `dingz/{id}/online`, `dingz/{id}/announce`) come from the firmware, not from the public REST playground. REST remains the source of truth and the only command path.
+iolo documents the topics in "dingz MQTT topics" (FW 2.1.58, Jan 2025, [dingz documents](https://www.dingz.ch/resources/documents)). REST remains the source of truth and the only command path; the integration only subscribes to:
+
+| Topic | Use |
+| --- | --- |
+| `dingz/<id>/online`, `dingz/<id>/announce` | MQTT diagnostic sensor, discovery |
+| `dingz/<id>/<model>/state/light/<n>`, `state/motor/<n>` | Push state (`<n>` is the relative index used by REST) |
+| `dingz/<id>/<model>/state/input/<n>` | Input: index 0 for "state" inputs; index 4 for button inputs (observed on 2.6.0) |
+| `dingz/<id>/<model>/sensor/light`, `sensor/temperature` | Push sensors |
+| `dingz/<id>/<model>/energy/<light\|motor>/<n>` | Cumulative energy (watt-seconds, measured; published at most every 10 min) |
+| `dingz/<id>/<model>/event/button/<n>` | Buttons 0-3, 4 = button wired to the input |
+| `dingz/<id>/<model>/event/pir/<n>` | PIR events (0 internal, 1 external) |
 
 By default the integration uses polling to update the state of the dingz (i.e. it repeatedly requests the current state from the dingz), but by enabling MQTT the dingz device will actively push its current state to the Home Assistant.
-This allows for updates to be performed faster and also enables additional features like detecting button presses that aren't available without MQTT.
+This allows for updates to be performed faster and also enables additional features that aren't available without MQTT: button events, the button wired to the input and cumulative energy counters.
 
 ## Using the Home Assistant Mosquitto Add-on
 
@@ -48,11 +58,10 @@ We're almost there, the only thing left is to actually configure the dingz devic
 7. Go back to the integration overview page and reload the integration entry (alternatively you can also restart the Home Assistant). The integration will now provide more entities.
 
 > [!IMPORTANT]
-> I don't actually know whether dingz devices are able to resolve mDNS names (like `homeassistant.local`).
-> If your device doesn't connect to the Home Assistant, try replacing `homeassistant.local` with the actual IP address of your Home Assistant instance.
+> It is not known whether dingz devices resolve mDNS names (like `homeassistant.local`).
+> If your device doesn't connect, use the IP address of your broker instead.
 >
-> I also haven't tried to set up a TLS connection using the "Server Certificate" text box. I don't even know what format it expects (hopefully PEM, but maybe it uses raw DER which wouldn't work).
-> If you're playing around with this, please open a new discussion.
+> According to iolo, the certificate is a PEM-encoded string and TLS support is beta. A PEM certificate is longer than a Home Assistant state, so the "MQTT Server Certificate" entity shows "unknown" once a certificate is set; the password in the "MQTT URI" entity is shown masked and is kept if you edit the URI without retyping it.
 
 ## Debugging
 

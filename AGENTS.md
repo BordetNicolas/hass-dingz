@@ -29,6 +29,15 @@ Cette base contient l'integration personnalisee Home Assistant `dingz` pour les 
 - MQTT est optionnel et ne s'active que si l'integration MQTT de Home Assistant est configuree. Il accelere les mises a jour et fournit les evenements de boutons indisponibles via REST.
 - `mqtt.py` convertit les messages firmware en notifications internes, met a jour la copie de l'etat du coordinateur lorsque possible, puis les diffuse aux entites abonnees.
 
+### Capacites
+
+- `capabilities.py` centralise la detection : dimmers et moteurs presents (`state.dimmers[].index` / `state.blinds[].index`), PIR actifs, capteurs fournis, version de firmware (`AwesomeVersion`).
+- `output_config` liste toujours 4 sorties physiques, y compris celles d'un moteur ou d'une entree : creer les entites de sortie avec `output_slots()` (dimmers non `readonly`), commander avec l'index relatif, lire la configuration et la puissance a l'index absolu.
+- `blind_config` est indexe par moteur absolu ; les `unique_id` des stores gardent l'index relatif.
+- Ne jamais conditionner une fonction a la seule version de firmware quand la presence d'un champ suffit.
+- Les messages MQTT mettent a jour l'etat via `DingzCoordinator.async_patch_state()` (ne pas utiliser `async_set_updated_data`, qui repousse le polling).
+- Les commandes passent par `async_command()` (erreurs traduites).
+
 ### Entites
 
 - Chaque appareil physique correspond a un seul `DeviceInfo` et ses entites ne sont creees que lorsque leur fonctionnalite est active dans la configuration Dingz.
@@ -53,6 +62,7 @@ Cette base contient l'integration personnalisee Home Assistant `dingz` pour les 
 - Declarer les structures de payload dans `api.py` avec les `TypedDict` existants plutot que propager des dictionnaires non types.
 - Ajouter les tests cibles dans `tests/test_<module>.py` et les payloads partages dans `tests/fixtures/payloads.py`.
 - Les clients Dingz sont simules par la fixture `mock_dingz_client`; les tests Home Assistant utilisent `MockConfigEntry` de `tests/ha_helpers.py`.
+- Les reponses reelles anonymisees sont dans `tests/fixtures/devices/` (`tests/fixtures/devices.py`) ; toute nouvelle capture doit etre anonymisee (MAC, IP, SSID, numeros de serie, URI MQTT, coordonnees).
 - Ne pas modifier les fichiers sous `config/` pour une fonctionnalite de production: ils servent au developpement local.
 
 ## Commandes de verification
@@ -66,7 +76,8 @@ uv pip install --system -e ".[test]"
 Executer les verifications sans modifier les fichiers:
 
 ```bash
-pytest -q
+pytest -q --cov
+mypy
 ruff check .
 ruff format --check --diff
 ```

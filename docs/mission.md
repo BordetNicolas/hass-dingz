@@ -21,14 +21,29 @@ Fichier de reprise : état courant, décisions et blocages. Branche de travail :
 - [x] Corrections firmwares < 2.6.0 (commits `902dcfc`, `451e34b`, `48ece8a`, `6a993dc`)
 - [x] Conformité Quality Scale (diagnostics, reconfiguration, exceptions traduites, typage strict) — `c492daf`, `422e260`
 - [x] Commit de référence pré-2.6.0 (tag local `pre-fw-2.6.0-baseline`)
-- [ ] Évolutions 2.6.0
-- [ ] Documentation finale et rapport
+- [x] Évolutions 2.6.0 (`2bfb188` ; compatibilité CPU/base et MQTT moteur dans `451e34b`)
+- [x] Validation réelle non destructive (lecture REST + MQTT passif, 12 dingz)
+- [x] Documentation (README, CHANGELOG, docs/*)
+- [ ] Validation des commandes sur matériel réel — **autorisation requise**
+- [ ] Déploiement sur une instance HA de test puis en production — **autorisation requise**
+- [ ] Logo dans home-assistant/brands (hors dépôt)
+
+## État final
+
+| Indicateur | Valeur |
+| --- | --- |
+| Tests | 135 réussis (HA 2025.8.0 / Python 3.13 et HA 2026.10.4 / Python 3.14) |
+| Couverture | 95,3 % (seuil CI 95 %) |
+| mypy | `--strict` sans erreur |
+| Ruff | OK |
 
 ## Décisions
 
 - Les sorties `smart_light` (alimentation permanente d'ampoules connectées) ne sont pas exposées : les couper priverait les ampoules d'alimentation.
 - Les `unique_id` existants sont conservés : `output_{index absolu}`, `cover_{index relatif}`, `pir_{n}`, etc.
 - Les entités fantômes supprimées du code ne sont pas effacées automatiquement du registre : l'utilisateur les retire depuis l'interface (« entité plus fournie »).
+- Sorties `readonly` non exposées : en production, `light.entree_rez_entree_rez_lumiere_1` (sortie 0 utilisée par l'entrée) disparaîtra — à confirmer.
+- Énergie MQTT en watt-seconde (mesure), PIR 1 = externe et entrée selon le type (document MQTT officiel).
 
 ## Sources découvertes
 
