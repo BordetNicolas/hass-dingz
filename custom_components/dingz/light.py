@@ -109,28 +109,27 @@ class FrontLed(CoordinatorEntity[DingzCoordinator], LightEntity):
         else:
             h, s = hs
 
-        await async_command(
-            self.coordinator.runtime.client.set_led(
-                api.SetLedState(
-                    action="on",
-                    color=hsv_to_led_color(h, s, brightness),
-                    mode="hsv",
-                    ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
-                )
-            )
+        command = api.SetLedState(
+            action="on",
+            color=hsv_to_led_color(h, s, brightness),
+            mode="hsv",
         )
+        self._add_ramp(command, kwargs.get(ATTR_TRANSITION))
+        await async_command(self.coordinator.runtime.client.set_led(command))
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await async_command(
-            self.coordinator.runtime.client.set_led(
-                api.SetLedState(
-                    action="off",
-                    ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
-                )
-            )
-        )
+        command = api.SetLedState(action="off")
+        self._add_ramp(command, kwargs.get(ATTR_TRANSITION))
+        await async_command(self.coordinator.runtime.client.set_led(command))
         await self.coordinator.async_request_refresh()
+
+    @staticmethod
+    def _add_ramp(command: api.SetLedState, transition: float | None) -> None:
+        # The dingz keeps the last ramp as a setting of the LED: only send one
+        # when Home Assistant asks for a transition, never a hidden default.
+        if transition is not None:
+            command["ramp"] = transition_to_ramp_ms(transition)
 
 
 class Dimmer(

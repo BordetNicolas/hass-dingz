@@ -72,7 +72,12 @@ async def test_front_led(hass: HomeAssistant, mock_dingz_client, mock_mqtt_disab
     assert sent == {"action": "on", "color": "200;80;50", "mode": "hsv", "ramp": 4095}
 
     await _call(hass, "light", "turn_off", {"entity_id": led})
-    assert mock_dingz_client.set_led.await_args.args[0]["action"] == "off"
+    # No transition requested: the LED fade setting of the dingz is untouched.
+    assert mock_dingz_client.set_led.await_args.args[0] == {"action": "off"}
+
+    await _call(hass, "light", "turn_on", {"entity_id": led, "hs_color": (0, 100)})
+    sent = mock_dingz_client.set_led.await_args.args[0]
+    assert "ramp" not in sent
 
 
 async def test_ddi_channel(hass: HomeAssistant, mock_dingz_client, mock_mqtt_disabled):
