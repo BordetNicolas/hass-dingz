@@ -1,21 +1,39 @@
 {
     "config": {
         "abort": {
-            "device_already_configured": "Cet appareil est déjà configuré"
+            "device_already_configured": "Cet appareil est déjà configuré",
+            "cannot_connect": "Connexion impossible",
+            "false_positive": "Cet appareil n’est pas un dingz",
+            "wrong_device": "Cette adresse correspond à un autre dingz",
+            "reconfigure_successful": "Reconfiguration réussie"
         },
         "error": {
             "cannot_connect": "Connexion impossible",
-            "unknown": "Erreur inattendue"
+            "unknown": "Erreur inattendue",
+            "invalid_host": "Hôte ou URL invalide (adresse IP, nom d’hôte ou http(s)://hôte)"
         },
         "step": {
             "user": {
                 "data": {
                     "host": "Hôte"
                 },
-                "description": "Saisissez le nom d’hôte ou l’adresse IP du dingz (par exemple 192.168.2.42)."
+                "description": "Saisissez le nom d’hôte ou l’adresse IP du dingz (par exemple 192.168.2.42).",
+                "data_description": {
+                    "host": "Adresse IP ou nom d’hôte, par exemple 192.168.2.42."
+                }
             },
             "confirm": {
-                "description": "Confirmer l’ajout ?"
+                "description": "Ajouter le dingz {name} ({url}) ?"
+            },
+            "reconfigure": {
+                "title": "Modifier l’adresse",
+                "description": "Saisissez le nouveau nom d’hôte ou la nouvelle adresse IP de ce dingz.",
+                "data": {
+                    "host": "Hôte"
+                },
+                "data_description": {
+                    "host": "Adresse IP ou nom d’hôte, par exemple 192.168.2.42."
+                }
             }
         },
         "flow_title": "{name}"
@@ -29,10 +47,13 @@
                 "name": "Mouvement PIR"
             },
             "motion_1": {
-                "name": "PIR interne"
+                "name": "Mouvement PIR 2"
             },
             "mqtt_online": {
                 "name": "MQTT"
+            },
+            "motion_2": {
+                "name": "Mouvement PIR 3"
             }
         },
         "button": {
@@ -46,7 +67,10 @@
                 "name": "Réinitialiser le délai PIR"
             },
             "reset_pir_time_1": {
-                "name": "Réinitialiser le délai PIR interne"
+                "name": "Réinitialiser le délai PIR 2"
+            },
+            "reset_pir_time_2": {
+                "name": "Réinitialiser le délai PIR 3"
             }
         },
         "cover": {
@@ -80,7 +104,15 @@
                 }
             },
             "pir_1": {
-                "name": "PIR interne",
+                "name": "PIR 2",
+                "state": {
+                    "s": "Mouvement",
+                    "ss": "Présence",
+                    "n": "Personne"
+                }
+            },
+            "pir_2": {
+                "name": "PIR 3",
                 "state": {
                     "s": "Mouvement",
                     "ss": "Présence",
@@ -176,6 +208,12 @@
             },
             "diag_largest_free_block": {
                 "name": "Plus grand bloc libre"
+            },
+            "motor_energy": {
+                "name": "Énergie store {position}"
+            },
+            "motor_energy_named": {
+                "name": "Énergie {name}"
             }
         },
         "switch": {
@@ -202,6 +240,10 @@
         "output_energy_dropped": {
             "title": "Capteurs d’énergie retirés",
             "description": "L’API Dingz n’expose que la puissance instantanée (W), pas l’énergie cumulée (Wh). Recréez un helper Home Assistant « Intégration (Riemann) » à partir du capteur de puissance si vous en avez besoin."
+        },
+        "unsupported_firmware": {
+            "title": "Firmware dingz non pris en charge",
+            "description": "Le dingz {name} utilise le firmware {version}. Cette intégration utilise l’API REST des firmwares {minimum} et ultérieurs ; certaines entités peuvent ne pas fonctionner. Mettez le dingz à jour avec l’application dingz."
         }
     },
     "services": {
@@ -218,6 +260,26 @@
                     "description": "Position des lamelles (0 = fermées, 100 = ouvertes)."
                 }
             }
+        }
+    },
+    "exceptions": {
+        "timeout": {
+            "message": "Délai dépassé lors de la communication avec le dingz"
+        },
+        "cannot_connect": {
+            "message": "Erreur de communication avec le dingz : {error}"
+        },
+        "invalid_response": {
+            "message": "Le dingz a renvoyé une réponse invalide"
+        },
+        "command_timeout": {
+            "message": "Le dingz n’a pas répondu à la commande à temps"
+        },
+        "command_failed": {
+            "message": "Le dingz a refusé ou n’a pas reçu la commande : {error}"
+        },
+        "auth_required": {
+            "message": "Le dingz a refusé l’accès (HTTP 401/403). La protection par mot de passe de l’API REST n’est pas prise en charge par cette intégration ; désactivez-la dans l’application dingz."
         }
     }
 }

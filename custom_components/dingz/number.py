@@ -6,7 +6,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import DingzConfigEntry, DingzCoordinator
-from .entity import DingzEntity, entity_unique_id
+from .entity import DingzEntity, async_command, entity_unique_id
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -39,6 +41,6 @@ class TemperatureOffset(DingzEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         value = round(value, 1)
-        await self.runtime.client.set_temp_offset(value)
-        await self.coordinator.async_refresh_config()
+        await async_command(self.runtime.client.set_temp_offset(value))
+        await async_command(self.coordinator.async_refresh_config())
         await self.coordinator.async_request_refresh()

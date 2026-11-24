@@ -5,17 +5,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from yarl import URL
 
-from . import api
+from . import api, capabilities
 from .const import (
     CONF_BASE_URL,
     DIAGNOSTIC_SCAN_INTERVAL,
@@ -54,9 +60,21 @@ class DingzCoordinator(DataUpdateCoordinator[api.State]):
             ddi_channels=[],
         )
         self._config_timestamp: int | None = None
+        self._signature: tuple[Any, ...] | None = None
 
     async def _async_setup(self) -> None:
-        await self.async_refresh_config()
+        try:
+            await self.async_refresh_config()
+        except TimeoutError as err:
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="timeout"
+            ) from err
+        except (aiohttp.ClientError, api.NotEnoughRamError) as err:
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
     async def async_refresh_config(self) -> None:
         """Reload the relatively static Dingz configuration."""
@@ -74,11 +92,31 @@ class DingzCoordinator(DataUpdateCoordinator[api.State]):
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 state = await self.runtime.client.get_state()
         except TimeoutError as err:
-            raise UpdateFailed("Timeout while fetching Dingz state") from err
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"Error communicating with Dingz: {err}") from err
-        except api.NotEnoughRamError as err:
-            raise UpdateFailed(str(err)) from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="timeout"
+            ) from err
+        except aiohttp.ClientResponseError as err:
+            if err.status in (401, 403):
+                # Firmware exposes a REST password option (system_config
+                # "rest_password"); its authentication scheme is not documented.
+                raise UpdateFailed(
+                    translation_domain=DOMAIN, translation_key="auth_required"
+                ) from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except (aiohttp.ClientError, api.NotEnoughRamError) as err:
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not isinstance(state, dict):
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="invalid_response"
+            )
 
         timestamp = _config_timestamp(state)
         if timestamp is not None and timestamp != self._config_timestamp:
@@ -94,7 +132,27 @@ class DingzCoordinator(DataUpdateCoordinator[api.State]):
                     _LOGGER.warning("failed to refresh Dingz config: %s", err)
             self._config_timestamp = timestamp
 
+        self._check_structure(state)
         return state
+
+    def _check_structure(self, state: api.State) -> None:
+        """Reload the entry when the device configuration changes its entities."""
+        signature = capabilities.structure_signature(self.device_config, state)
+        if self._signature is None:
+            self._signature = signature
+        elif signature != self._signature:
+            self._signature = signature
+            _LOGGER.info(
+                "Dingz %s configuration changed, reloading entities",
+                self.runtime.dingz_id,
+            )
+            self.hass.config_entries.async_schedule_reload(self.runtime.entry.entry_id)
+
+    @callback
+    def async_patch_state(self, state: api.State) -> None:
+        """Apply a pushed (MQTT) state without postponing the next REST poll."""
+        self.data = state
+        self.async_update_listeners()
 
 
 class DiagnosticCoordinator(DataUpdateCoordinator[api.Ram]):
@@ -115,11 +173,15 @@ class DiagnosticCoordinator(DataUpdateCoordinator[api.Ram]):
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 return await self.runtime.client.get_ram()
         except TimeoutError as err:
-            raise UpdateFailed("Timeout while fetching Dingz RAM") from err
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"Error communicating with Dingz: {err}") from err
-        except api.NotEnoughRamError as err:
-            raise UpdateFailed(str(err)) from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="timeout"
+            ) from err
+        except (aiohttp.ClientError, api.NotEnoughRamError) as err:
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
 
 class DingzRuntime:
@@ -189,9 +251,31 @@ class DingzRuntime:
             )
         )
 
+        self._check_firmware()
+
         from .mqtt import async_setup_mqtt
 
         self._mqtt_unsub = await async_setup_mqtt(self)
+
+    def _check_firmware(self) -> None:
+        issue_id = f"unsupported_firmware_{self.entry.entry_id}"
+        device = self.device_config.device
+        if capabilities.firmware_supported(device):
+            async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=IssueSeverity.WARNING,
+            translation_key="unsupported_firmware",
+            translation_placeholders={
+                "name": self.entry.title,
+                "version": str(device.get("fw_version")),
+                "minimum": str(capabilities.MIN_SUPPORTED_FIRMWARE),
+            },
+        )
 
     async def async_unload(self) -> None:
         if self._mqtt_unsub:

@@ -56,6 +56,8 @@ def mock_dingz_client() -> Generator[MagicMock]:
         client.set_ddi_channel = AsyncMock()
         client.update_mqtt_service_config = AsyncMock()
         client.update_thermostat_config = AsyncMock()
+        client.set_thermostat = AsyncMock()
+        client.set_thermostat_mode = AsyncMock()
         client.set_temp_offset = AsyncMock()
         client.reset_pir_time = AsyncMock()
         client.save_default_config = AsyncMock()

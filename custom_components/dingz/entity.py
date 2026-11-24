@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import abc
 import asyncio
+from collections.abc import Awaitable
 from typing import Any, cast
 
+import aiohttp
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import api
-from .const import COMMAND_REFRESH_DELAY
+from . import api, capabilities
+from .const import COMMAND_REFRESH_DELAY, DOMAIN
 from .coordinator import DiagnosticCoordinator, DingzCoordinator, DingzRuntime
 from .models import InternalNotification
 
@@ -33,6 +36,29 @@ def json_path_lookup(value: Any, path: list[str | int]) -> Any | None:
     except LookupError:
         return None
     return value
+
+
+async def async_command[T](awaitable: Awaitable[T]) -> T:
+    """Run a REST command and surface failures as a translated HA error."""
+    try:
+        return await awaitable
+    except TimeoutError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="command_timeout"
+        ) from err
+    except (aiohttp.ClientError, api.NotEnoughRamError) as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="command_failed",
+            translation_placeholders={"error": str(err)},
+        ) from err
+
+
+def clean_name(raw: Any) -> str | None:
+    """User-given Dingz names often carry trailing spaces."""
+    if not isinstance(raw, str):
+        return None
+    return raw.strip() or None
 
 
 def entity_unique_id(runtime: DingzRuntime, suffix: str) -> str:
@@ -117,32 +143,67 @@ class DelayedCoordinatorRefreshMixin:
         await coordinator.async_request_refresh()
 
 
-class DingzOutputEntity(DingzEntity, UserAssignedNameMixin):
-    def __init__(self, coordinator: DingzCoordinator, *, index: int) -> None:
-        super().__init__(coordinator)
-        self._index = index
+def output_slots(runtime: DingzRuntime, output_type: str) -> list[capabilities.Slot]:
+    """Controllable dimmers whose physical output has the given type.
+
+    ``output_config`` always lists the four physical outputs, including those
+    driving motors or used as an input; only the dimmers reported by
+    GET /state (and not read-only) can be commanded.
+    """
+    slots = []
+    for slot in capabilities.dimmer_slots(runtime.coordinator.data or {}):
+        if slot.readonly:
+            continue
+        config = capabilities.item_at(runtime.device_config.outputs, slot.absolute)
+        if (
+            isinstance(config, dict)
+            and config.get("active", False)
+            and config.get("type") == output_type
+        ):
+            slots.append(slot)
+    return slots
+
+
+class OutputMixin(UserAssignedNameMixin):
+    """Access to a physical output and its dimmer state.
+
+    ``_slot.relative`` addresses REST commands; ``_slot.absolute`` addresses
+    ``output_config`` and ``power_outputs`` and keeps unique ids stable.
+    """
+
+    _slot: capabilities.Slot
+    coordinator: DingzCoordinator
 
     @property
     def comp_index(self) -> int:
-        return self._index
+        return self._slot.absolute
 
     @property
     def dingz_dimmer(self) -> api.StateDimmer:
-        try:
-            return self.coordinator.data["dimmers"][self._index]
-        except LookupError:
-            return api.StateDimmer()
+        data = self.coordinator.data or {}
+        item = capabilities.find_by_absolute(
+            data.get("dimmers"), self._slot.absolute, self._slot.relative
+        )
+        return item if item is not None else api.StateDimmer()
 
     @property
     def dingz_output_config(self) -> api.OutputConfig:
-        try:
-            return self.coordinator.device_config.outputs[self._index]
-        except LookupError:
-            return api.OutputConfig()
+        item = capabilities.item_at(
+            self.coordinator.device_config.outputs, self._slot.absolute
+        )
+        return item if item is not None else api.OutputConfig()
 
     @property
     def user_given_name(self) -> str | None:
-        return self.dingz_output_config.get("name")
+        return clean_name(self.dingz_output_config.get("name"))
+
+
+class DingzOutputEntity(DingzEntity, OutputMixin):
+    def __init__(
+        self, coordinator: DingzCoordinator, *, slot: capabilities.Slot
+    ) -> None:
+        super().__init__(coordinator)
+        self._slot = slot
 
 
 class CoordinatedNotificationStateEntity(
@@ -155,6 +216,13 @@ class CoordinatedNotificationStateEntity(
     @callback
     @abc.abstractmethod
     def handle_state_update(self) -> None: ...
+
+    async def async_added_to_hass(self) -> None:
+        # Show the state fetched during setup instead of waiting for the
+        # next poll.
+        if self.coordinator.data is not None:
+            self.handle_state_update()
+        await super().async_added_to_hass()
 
     @callback
     def _handle_coordinator_update(self) -> None:

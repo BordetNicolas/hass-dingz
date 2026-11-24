@@ -1,13 +1,24 @@
 """Event platform for Dingz."""
 
+import logging
+
 from homeassistant.components.event import EventDeviceClass, EventEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import api
+from . import api, capabilities
 from .coordinator import DingzConfigEntry, DingzRuntime
-from .entity import InternalNotificationMixin, UserAssignedNameMixin, entity_unique_id
+from .entity import (
+    InternalNotificationMixin,
+    UserAssignedNameMixin,
+    clean_name,
+    entity_unique_id,
+)
 from .models import ButtonNotification, InternalNotification, PirNotification
+
+_LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -18,19 +29,9 @@ async def async_setup_entry(
     runtime = config_entry.runtime_data
     entities: list[EventEntity] = []
 
-    try:
-        mqtt_enabled = runtime.device_config.services["mqtt"]["enable"]
-    except LookupError:
-        mqtt_enabled = False
-
-    if mqtt_enabled:
-        try:
-            pirs = runtime.coordinator.data["sensors"]["pirs"]
-        except LookupError:
-            pirs = []
-        for index, dingz_pir in enumerate(pirs):
-            if dingz_pir and dingz_pir.get("enabled", False):
-                entities.append(Pir(runtime, index=index))
+    if capabilities.mqtt_enabled(runtime.device_config):
+        for index in capabilities.enabled_pirs(runtime.coordinator.data or {}):
+            entities.append(Pir(runtime, index=index))
 
         try:
             buttons = runtime.device_config.buttons["buttons"]
@@ -62,8 +63,7 @@ class Pir(InternalNotificationMixin, EventEntity):
             and notification.index == self._index
         ):
             return
-        self._trigger_event(notification.event_type)
-        self.async_write_ha_state()
+        _trigger(self, notification.event_type)
 
 
 class Button(InternalNotificationMixin, EventEntity, UserAssignedNameMixin):
@@ -90,7 +90,7 @@ class Button(InternalNotificationMixin, EventEntity, UserAssignedNameMixin):
 
     @property
     def user_given_name(self) -> str | None:
-        return self.dingz_button_config.get("name")
+        return clean_name(self.dingz_button_config.get("name"))
 
     @callback
     def handle_notification(self, notification: InternalNotification) -> None:
@@ -99,5 +99,13 @@ class Button(InternalNotificationMixin, EventEntity, UserAssignedNameMixin):
             and notification.index == self._index
         ):
             return
-        self._trigger_event(notification.event_type)
-        self.async_write_ha_state()
+        _trigger(self, notification.event_type)
+
+
+def _trigger(entity: EventEntity, event_type: str) -> None:
+    """Fire an event, ignoring types the firmware may add in the future."""
+    if event_type not in entity.event_types:
+        _LOGGER.debug("ignoring unknown event type %r for %s", event_type, entity)
+        return
+    entity._trigger_event(event_type)
+    entity.async_write_ha_state()

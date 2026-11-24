@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from custom_components.dingz.binary_sensor import Input, Motion
+from custom_components.dingz.capabilities import Slot
 from custom_components.dingz.event import Button
 from custom_components.dingz.light import Dimmer
 from custom_components.dingz.sensor import Brightness, OutputPower
@@ -42,7 +43,10 @@ def test_inactive_output_not_a_light() -> None:
         if output.get("active") and output.get("type") == "light"
     ]
     assert 3 not in active_lights
-    assert Dimmer(runtime, 0).unique_id == f"{DINGZ_ID}_output_0"
+    assert (
+        Dimmer(runtime, Slot(relative=0, absolute=0, readonly=False)).unique_id
+        == f"{DINGZ_ID}_output_0"
+    )
 
 
 def test_motion_and_input() -> None:

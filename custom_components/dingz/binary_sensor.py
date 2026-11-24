@@ -10,12 +10,13 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import api
+from . import api, capabilities
 from .coordinator import DingzConfigEntry, DingzRuntime
 from .entity import (
     CoordinatedNotificationStateEntity,
     InternalNotificationMixin,
     UserAssignedNameMixin,
+    clean_name,
     entity_unique_id,
 )
 from .models import (
@@ -24,6 +25,8 @@ from .models import (
     MqttOnlineNotification,
     PirNotification,
 )
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -38,13 +41,8 @@ async def async_setup_entry(
         if dingz_input.get("active", False):
             entities.append(Input(runtime, index=index))
 
-    try:
-        pirs = runtime.coordinator.data["sensors"]["pirs"]
-    except LookupError:
-        pirs = []
-    for index, dingz_pir in enumerate(pirs):
-        if dingz_pir and dingz_pir.get("enabled", False):
-            entities.append(Motion(runtime, index=index))
+    for index in capabilities.enabled_pirs(runtime.coordinator.data or {}):
+        entities.append(Motion(runtime, index=index))
 
     async_add_entities(entities)
 
@@ -75,13 +73,15 @@ class Input(
 
     @property
     def user_given_name(self) -> str | None:
-        return self.dingz_input_config.get("name")
+        return clean_name(self.dingz_input_config.get("name"))
 
     @property
     def device_class(self) -> BinarySensorDeviceClass | None:
         try:
             input_ty = self.dingz_input_config["input"]["type"]
         except LookupError:
+            return None
+        if not isinstance(input_ty, str):
             return None
 
         if input_ty.startswith("pir_"):

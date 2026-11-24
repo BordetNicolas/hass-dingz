@@ -14,22 +14,29 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import api
+from . import api, capabilities
 from .conversions import (
     brightness_dingz_to_ha,
     brightness_ha_to_dingz,
     hsv_to_led_color,
     parse_hsv,
+    transition_to_dimmer_time,
     transition_to_ramp_ms,
 )
 from .coordinator import DingzConfigEntry, DingzCoordinator, DingzRuntime
 from .entity import (
     CoordinatedNotificationStateEntity,
     DelayedCoordinatorRefreshMixin,
+    OutputMixin,
     UserAssignedNameMixin,
+    async_command,
+    clean_name,
     entity_unique_id,
+    output_slots,
 )
-from .models import InternalNotification, LightStateNotification
+from .models import InternalNotification
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -40,9 +47,8 @@ async def async_setup_entry(
     runtime = config_entry.runtime_data
     entities: list[LightEntity] = [FrontLed(runtime.coordinator)]
 
-    for index, dingz_output in enumerate(runtime.device_config.outputs):
-        if dingz_output.get("active", False) and dingz_output.get("type") == "light":
-            entities.append(Dimmer(runtime, index))
+    for slot in output_slots(runtime, "light"):
+        entities.append(Dimmer(runtime, slot))
     if runtime.device_config.device.get("ddi_base", False):
         for index, ddi in enumerate(runtime.device_config.ddi_channels):
             if ddi.get("en", False):
@@ -103,21 +109,25 @@ class FrontLed(CoordinatorEntity[DingzCoordinator], LightEntity):
         else:
             h, s = hs
 
-        await self.coordinator.runtime.client.set_led(
-            api.SetLedState(
-                action="on",
-                color=hsv_to_led_color(h, s, brightness),
-                mode="hsv",
-                ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
+        await async_command(
+            self.coordinator.runtime.client.set_led(
+                api.SetLedState(
+                    action="on",
+                    color=hsv_to_led_color(h, s, brightness),
+                    mode="hsv",
+                    ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
+                )
             )
         )
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.runtime.client.set_led(
-            api.SetLedState(
-                action="off",
-                ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
+        await async_command(
+            self.coordinator.runtime.client.set_led(
+                api.SetLedState(
+                    action="off",
+                    ramp=transition_to_ramp_ms(kwargs.get(ATTR_TRANSITION)),
+                )
             )
         )
         await self.coordinator.async_request_refresh()
@@ -126,46 +136,28 @@ class FrontLed(CoordinatorEntity[DingzCoordinator], LightEntity):
 class Dimmer(
     CoordinatedNotificationStateEntity,
     LightEntity,
-    UserAssignedNameMixin,
+    OutputMixin,
     DelayedCoordinatorRefreshMixin,
 ):
     _attr_supported_features = LightEntityFeature.TRANSITION
     _attr_translation_key = "dimmer"
 
-    def __init__(self, runtime: DingzRuntime, index: int) -> None:
+    def __init__(self, runtime: DingzRuntime, slot: capabilities.Slot) -> None:
         super().__init__(runtime)
-        self._index = index
-        self._attr_unique_id = entity_unique_id(runtime, f"output_{index}")
+        self._slot = slot
+        self._attr_unique_id = entity_unique_id(runtime, f"output_{slot.absolute}")
         self._attr_device_info = runtime.device_info
-
-    @property
-    def dingz_output_config(self) -> api.OutputConfig:
-        try:
-            return self.coordinator.device_config.outputs[self._index]
-        except LookupError:
-            return api.OutputConfig()
 
     @property
     def dingz_dimmable(self) -> bool:
         try:
-            return self.dingz_output_config["light"]["dimmable"]
+            return bool(self.dingz_output_config["light"]["dimmable"])
         except LookupError:
             return False
 
     @property
     def dingz_dimmer_state(self) -> api.StateDimmer:
-        try:
-            return self.coordinator.data["dimmers"][self._index]
-        except LookupError:
-            return api.StateDimmer()
-
-    @property
-    def comp_index(self) -> int:
-        return self._index
-
-    @property
-    def user_given_name(self) -> str | None:
-        return self.dingz_output_config.get("name")
+        return self.dingz_dimmer
 
     @property
     def color_mode(self) -> ColorMode | str | None:
@@ -177,18 +169,9 @@ class Dimmer(
 
     @callback
     def handle_notification(self, notification: InternalNotification) -> None:
-        if not (
-            isinstance(notification, LightStateNotification)
-            and notification.index == self._index
-        ):
-            return
-        match notification.turn:
-            case "on":
-                self._attr_is_on = True
-            case "off":
-                self._attr_is_on = False
-        self._attr_brightness = brightness_dingz_to_ha(notification.brightness)
-        self.async_write_ha_state()
+        # MQTT light messages patch the coordinator state, which then calls
+        # handle_state_update(); nothing else to do here.
+        return
 
     @callback
     def handle_state_update(self) -> None:
@@ -197,21 +180,27 @@ class Dimmer(
             self._attr_brightness = brightness_dingz_to_ha(output)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        try:
-            brightness = kwargs[ATTR_BRIGHTNESS]
-        except LookupError:
-            value = None
-        else:
-            value = brightness_ha_to_dingz(brightness)
+        value = None
+        if self.dingz_dimmable and ATTR_BRIGHTNESS in kwargs:
+            value = brightness_ha_to_dingz(kwargs[ATTR_BRIGHTNESS])
 
-        await self.coordinator.runtime.client.set_dimmer(
-            self._index, "on", value=value, time=kwargs.get(ATTR_TRANSITION)
+        await async_command(
+            self.coordinator.runtime.client.set_dimmer(
+                self._slot.relative,
+                "on",
+                value=value,
+                time=transition_to_dimmer_time(kwargs.get(ATTR_TRANSITION)),
+            )
         )
         await self.delayed_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.runtime.client.set_dimmer(
-            self._index, "off", time=kwargs.get(ATTR_TRANSITION)
+        await async_command(
+            self.coordinator.runtime.client.set_dimmer(
+                self._slot.relative,
+                "off",
+                time=transition_to_dimmer_time(kwargs.get(ATTR_TRANSITION)),
+            )
         )
         await self.delayed_request_refresh()
 
@@ -253,7 +242,7 @@ class Ddi(
 
     @property
     def user_given_name(self) -> str | None:
-        return self.dingz_ddi_channel_config.get("name")
+        return clean_name(self.dingz_ddi_channel_config.get("name"))
 
     @property
     def color_mode(self) -> ColorMode:
@@ -296,19 +285,23 @@ class Ddi(
         if brightness is None and color_temperature is not None:
             brightness = self.dingz_ddi_channel_state.get("brightness")
 
-        await self.coordinator.runtime.client.set_ddi_channel(
-            self._index,
-            "on",
-            brightness=brightness,
-            color_temperature=color_temperature,
-            time=kwargs.get(ATTR_TRANSITION),
+        await async_command(
+            self.coordinator.runtime.client.set_ddi_channel(
+                self._index,
+                "on",
+                brightness=brightness,
+                color_temperature=color_temperature,
+                time=transition_to_dimmer_time(kwargs.get(ATTR_TRANSITION)),
+            )
         )
         await self.delayed_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.runtime.client.set_ddi_channel(
-            self._index,
-            "off",
-            time=kwargs.get(ATTR_TRANSITION),
+        await async_command(
+            self.coordinator.runtime.client.set_ddi_channel(
+                self._index,
+                "off",
+                time=transition_to_dimmer_time(kwargs.get(ATTR_TRANSITION)),
+            )
         )
         await self.delayed_request_refresh()

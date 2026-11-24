@@ -1,0 +1,27 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "mqtt_online": { "default": "mdi:lan-connect" }
+    },
+    "button": {
+      "save_default_config": { "default": "mdi:content-save" }
+    },
+    "number": {
+      "temperature_offset": { "default": "mdi:thermometer-plus" }
+    },
+    "sensor": {
+      "light_state": { "default": "mdi:theme-light-dark" },
+      "dyn_light": { "default": "mdi:white-balance-sunny" }
+    },
+    "switch": {
+      "mqtt_enable": { "default": "mdi:lan" }
+    },
+    "text": {
+      "mqtt_uri": { "default": "mdi:link-variant" },
+      "mqtt_server_crt": { "default": "mdi:certificate" }
+    }
+  },
+  "services": {
+    "set_position_and_tilt": { "service": "mdi:blinds" }
+  }
+}

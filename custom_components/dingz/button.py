@@ -9,9 +9,11 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import api
+from . import capabilities
 from .coordinator import DingzConfigEntry, DingzRuntime
-from .entity import entity_unique_id
+from .entity import DingzEntity, async_command, entity_unique_id
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -41,20 +43,13 @@ async def async_setup_entry(
         ),
     ]
 
-    try:
-        pirs = runtime.coordinator.data["sensors"]["pirs"]
-    except LookupError:
-        pirs = []
-    for index, dingz_pir in enumerate(pirs):
-        if dingz_pir and dingz_pir.get("enabled", False):
-            entities.append(ResetPirTime(runtime, index=index))
+    for index in capabilities.enabled_pirs(runtime.coordinator.data or {}):
+        entities.append(ResetPirTime(runtime, index=index))
 
     async_add_entities(entities)
 
 
-class Action(ButtonEntity):
-    _attr_has_entity_name = True
-
+class Action(DingzEntity, ButtonEntity):
     def __init__(
         self,
         runtime: DingzRuntime,
@@ -63,7 +58,7 @@ class Action(ButtonEntity):
         refresh_state: bool = False,
         refresh_config: bool = False,
     ) -> None:
-        self.runtime = runtime
+        super().__init__(runtime.coordinator)
         self._attr_unique_id = entity_unique_id(runtime, desc.key)
         self._attr_device_info = runtime.device_info
         self.entity_description = desc
@@ -72,34 +67,22 @@ class Action(ButtonEntity):
 
     async def async_press(self) -> None:
         method = getattr(self.runtime.client, self.entity_description.key)
-        await method()
+        await async_command(method())
 
         if self._refresh_state:
             await self.runtime.coordinator.async_request_refresh()
         if self._refresh_config:
-            await self.runtime.coordinator.async_refresh_config()
+            await async_command(self.runtime.coordinator.async_refresh_config())
 
 
-class ResetPirTime(ButtonEntity):
-    _attr_has_entity_name = True
-
+class ResetPirTime(DingzEntity, ButtonEntity):
     def __init__(self, runtime: DingzRuntime, index: int) -> None:
-        self.runtime = runtime
+        super().__init__(runtime.coordinator)
         self._index = index
         self._attr_unique_id = entity_unique_id(runtime, f"reset_pir_{index}")
         self._attr_device_info = runtime.device_info
         self._attr_translation_key = f"reset_pir_time_{index}"
 
-    @property
-    def dingz_pir(self) -> api.SensorPir:
-        try:
-            raw = self.runtime.coordinator.data["sensors"]["pirs"][self._index]
-        except LookupError:
-            return api.SensorPir()
-        if raw is None:
-            return api.SensorPir()
-        return raw
-
     async def async_press(self) -> None:
-        await self.runtime.client.reset_pir_time(self._index)
+        await async_command(self.runtime.client.reset_pir_time(self._index))
         await self.runtime.coordinator.async_request_refresh()

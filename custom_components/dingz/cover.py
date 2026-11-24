@@ -9,11 +9,13 @@ from homeassistant.components.cover import (
     CoverEntity,
     CoverEntityFeature,
 )
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_platform
+from homeassistant.helpers import entity_platform, service
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import api
+from . import api, capabilities
+from .const import DOMAIN
 from .conversions import (
     cover_moving_from_state,
     cover_position_from_state,
@@ -24,13 +26,29 @@ from .entity import (
     CoordinatedNotificationStateEntity,
     DelayedCoordinatorRefreshMixin,
     UserAssignedNameMixin,
+    async_command,
+    clean_name,
     entity_unique_id,
 )
 from .models import InternalNotification, MotorMotion, MotorStateNotification
 
+PARALLEL_UPDATES = 0
+
 SERVICE_SET_POSITION_AND_TILT = "set_position_and_tilt"
 
 _PERCENT = vol.All(vol.Coerce(int), vol.Range(min=0, max=100))
+# Position and slats in a single command: the firmware chains both movements,
+# whereas two separate calls would interrupt each other.
+_SET_POSITION_AND_TILT_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Required(ATTR_POSITION): _PERCENT,
+    vol.Required(ATTR_TILT_POSITION): _PERCENT,
+}
+# Home Assistant releases older than this helper register the action per
+# platform instead (supported down to 2025.8).
+_register_platform_entity_service = getattr(
+    service, "async_register_platform_entity_service", None
+)
+_HAS_PLATFORM_ENTITY_SERVICE = _register_platform_entity_service is not None
 
 
 async def async_setup_entry(
@@ -41,31 +59,37 @@ async def async_setup_entry(
     runtime = config_entry.runtime_data
     entities: list[CoverEntity] = []
 
-    blinds = runtime.coordinator.data.get("blinds") or []
-    for index, blind in enumerate(blinds):
-        if blind.get("readonly"):
+    for slot in capabilities.blind_slots(runtime.coordinator.data or {}):
+        if slot.readonly:
             continue
-        try:
-            cfg = runtime.device_config.blinds[index]
-        except LookupError:
-            cfg = api.BlindConfig()
-        if cfg and not cfg.get("active", True):
+        # blind_config always lists both motors, indexed by absolute motor.
+        cfg = capabilities.item_at(runtime.device_config.blinds, slot.absolute)
+        if isinstance(cfg, dict) and not cfg.get("active", True):
             continue
-        entities.append(Blind(runtime, index=index))
+        entities.append(Blind(runtime, slot=slot))
 
     async_add_entities(entities)
 
-    # Position et lamelles en une seule commande : le firmware enchaîne les deux
-    # mouvements, alors que deux appels séparés s'interrompraient.
-    platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_SET_POSITION_AND_TILT,
-        {
-            vol.Required(ATTR_POSITION): _PERCENT,
-            vol.Required(ATTR_TILT_POSITION): _PERCENT,
-        },
-        "async_set_position_and_tilt",
-    )
+    if not _HAS_PLATFORM_ENTITY_SERVICE:
+        entity_platform.async_get_current_platform().async_register_entity_service(
+            SERVICE_SET_POSITION_AND_TILT,
+            _SET_POSITION_AND_TILT_SCHEMA,
+            "async_set_position_and_tilt",
+        )
+
+
+@callback
+def async_setup_services(hass: HomeAssistant) -> None:
+    """Register integration actions once, independently of config entries."""
+    if _register_platform_entity_service is not None:
+        _register_platform_entity_service(
+            hass,
+            DOMAIN,
+            SERVICE_SET_POSITION_AND_TILT,
+            entity_domain=Platform.COVER,
+            schema=_SET_POSITION_AND_TILT_SCHEMA,
+            func="async_set_position_and_tilt",
+        )
 
 
 class Blind(
@@ -85,19 +109,21 @@ class Blind(
         | CoverEntityFeature.SET_TILT_POSITION
     )
 
-    def __init__(self, runtime: DingzRuntime, *, index: int) -> None:
+    def __init__(self, runtime: DingzRuntime, *, slot: capabilities.Slot) -> None:
         super().__init__(runtime)
-        self._index = index
+        self._slot = slot
+        self._index = slot.relative
         self._blind_state: dict[str, Any] = {}
-        self._attr_unique_id = entity_unique_id(runtime, f"cover_{index}")
+        # Historical unique id uses the relative motor index; keep it stable.
+        self._attr_unique_id = entity_unique_id(runtime, f"cover_{slot.relative}")
         self._attr_device_info = runtime.device_info
 
     @property
     def dingz_blind_config(self) -> api.BlindConfig:
-        try:
-            return self.coordinator.device_config.blinds[self._index]
-        except LookupError:
-            return api.BlindConfig()
+        item = capabilities.item_at(
+            self.coordinator.device_config.blinds, self._slot.absolute
+        )
+        return item if item is not None else api.BlindConfig()
 
     @property
     def comp_index(self) -> int:
@@ -105,7 +131,7 @@ class Blind(
 
     @property
     def user_given_name(self) -> str | None:
-        return self.dingz_blind_config.get("name")
+        return clean_name(self.dingz_blind_config.get("name"))
 
     @property
     def current_cover_position(self) -> int | None:
@@ -153,48 +179,60 @@ class Blind(
 
     @callback
     def handle_state_update(self) -> None:
-        try:
-            state = self.coordinator.data["blinds"][self._index]
-        except LookupError:
-            return
-        self._blind_state = dict(state)
+        state = capabilities.find_by_absolute(
+            (self.coordinator.data or {}).get("blinds"),
+            self._slot.absolute,
+            self._slot.relative,
+        )
+        if state is not None:
+            self._blind_state = dict(state)
 
     async def async_open_cover(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind(self._index, "up")
+        await async_command(self.runtime.client.move_blind(self._index, "up"))
         await self.delayed_request_refresh()
 
     async def async_close_cover(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind(self._index, "down")
+        await async_command(self.runtime.client.move_blind(self._index, "down"))
         await self.delayed_request_refresh()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind(self._index, "stop")
+        await async_command(self.runtime.client.move_blind(self._index, "stop"))
         await self.delayed_request_refresh()
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind_position(
-            self._index, blind=kwargs[ATTR_POSITION]
+        await async_command(
+            self.runtime.client.move_blind_position(
+                self._index, blind=kwargs[ATTR_POSITION]
+            )
         )
         await self.delayed_request_refresh()
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind_position(self._index, lamella=100)
+        await async_command(
+            self.runtime.client.move_blind_position(self._index, lamella=100)
+        )
         await self.delayed_request_refresh()
 
     async def async_close_cover_tilt(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind_position(self._index, lamella=0)
+        await async_command(
+            self.runtime.client.move_blind_position(self._index, lamella=0)
+        )
         await self.delayed_request_refresh()
 
     async def async_set_cover_tilt_position(self, **kwargs: Any) -> None:
-        await self.runtime.client.move_blind_position(
-            self._index, lamella=kwargs[ATTR_TILT_POSITION]
+        await async_command(
+            self.runtime.client.move_blind_position(
+                self._index, lamella=kwargs[ATTR_TILT_POSITION]
+            )
         )
         await self.delayed_request_refresh()
 
     async def async_set_position_and_tilt(
         self, *, position: int, tilt_position: int
     ) -> None:
-        await self.runtime.client.move_blind_position(
-            self._index, blind=position, lamella=tilt_position
+        await async_command(
+            self.runtime.client.move_blind_position(
+                self._index, blind=position, lamella=tilt_position
+            )
         )
         await self.delayed_request_refresh()

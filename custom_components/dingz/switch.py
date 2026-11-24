@@ -11,16 +11,20 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import api
+from . import api, capabilities
 from .coordinator import DingzConfigEntry, DingzCoordinator, DingzRuntime
 from .entity import (
     DelayedCoordinatorRefreshMixin,
     DingzEntity,
-    UserAssignedNameMixin,
+    DingzOutputEntity,
+    async_command,
     compile_json_path,
     entity_unique_id,
     json_path_lookup,
+    output_slots,
 )
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -33,12 +37,8 @@ async def async_setup_entry(
         MqttEnable(runtime.coordinator),
     ]
 
-    for index, dingz_output in enumerate(runtime.device_config.outputs):
-        if (
-            dingz_output.get("active", False)
-            and dingz_output.get("type") == "power_socket"
-        ):
-            entities.append(PowerSocket(runtime, index))
+    for slot in output_slots(runtime, "power_socket"):
+        entities.append(PowerSocket(runtime, slot))
 
     async_add_entities(entities)
 
@@ -67,58 +67,35 @@ class MqttEnable(DingzEntity, SwitchEntity):
         await self._set(False)
 
     async def _set(self, value: bool) -> None:
-        config = self.coordinator.device_config.services.get(
-            "mqtt", api.ServicesConfigMqtt()
+        config = api.ServicesConfigMqtt(
+            **self.coordinator.device_config.services.get("mqtt", {})
         )
-        config[self.entity_description.key] = value
-        await self.runtime.client.update_mqtt_service_config(config)
-        await self.coordinator.async_refresh_config()
+        config["enable"] = value
+        await async_command(self.runtime.client.update_mqtt_service_config(config))
+        await async_command(self.coordinator.async_refresh_config())
         self.async_write_ha_state()
 
 
 class PowerSocket(
-    DingzEntity,
+    DingzOutputEntity,
     SwitchEntity,
-    UserAssignedNameMixin,
     DelayedCoordinatorRefreshMixin,
 ):
     _attr_translation_key = "power_socket"
+    _attr_device_class = SwitchDeviceClass.OUTLET
 
-    def __init__(self, runtime: DingzRuntime, index: int) -> None:
-        super().__init__(runtime.coordinator)
-        self._index = index
-        self._attr_unique_id = entity_unique_id(runtime, f"socket_{index}")
-
-    @property
-    def dingz_output_config(self) -> api.OutputConfig:
-        try:
-            return self.coordinator.device_config.outputs[self._index]
-        except LookupError:
-            return api.OutputConfig()
-
-    @property
-    def dingz_dimmer_state(self) -> api.StateDimmer:
-        try:
-            return self.coordinator.data["dimmers"][self._index]
-        except LookupError:
-            return api.StateDimmer()
-
-    @property
-    def comp_index(self) -> int:
-        return self._index
-
-    @property
-    def user_given_name(self) -> str | None:
-        return self.dingz_output_config.get("name")
+    def __init__(self, runtime: DingzRuntime, slot: capabilities.Slot) -> None:
+        super().__init__(runtime.coordinator, slot=slot)
+        self._attr_unique_id = entity_unique_id(runtime, f"socket_{slot.absolute}")
 
     @property
     def is_on(self) -> bool | None:
-        return self.dingz_dimmer_state.get("on")
+        return self.dingz_dimmer.get("on")
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.runtime.client.set_dimmer(self._index, "on")
+        await async_command(self.runtime.client.set_dimmer(self._slot.relative, "on"))
         await self.delayed_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.runtime.client.set_dimmer(self._index, "off")
+        await async_command(self.runtime.client.set_dimmer(self._slot.relative, "off"))
         await self.delayed_request_refresh()

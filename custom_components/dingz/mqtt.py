@@ -1,4 +1,18 @@
-"""Optional MQTT push support using Home Assistant's MQTT integration."""
+"""Optional MQTT push support using Home Assistant's MQTT integration.
+
+Topics observed on firmware 2.4.3 and 2.6.0 (``<id>`` is the lower-case MAC,
+``<model>`` the front model, e.g. ``dz1f-4b``):
+
+- ``dingz/<id>/online`` (``true``/``false``), ``dingz/<id>/announce`` (JSON)
+- ``dingz/<id>/<model>/state/light/<relative dimmer>`` (JSON)
+- ``dingz/<id>/<model>/state/motor/<relative motor>`` (JSON)
+- ``dingz/<id>/<model>/state/input/<n>`` (``0``/``1``)
+- ``dingz/<id>/<model>/sensor/<light|temperature>`` (number)
+- ``dingz/<id>/<model>/power/<light|motor>/<relative index>`` (W)
+- ``dingz/<id>/<model>/event/<button|pir>/<n>`` (event code)
+
+REST remains the source of truth and the only command path.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +27,7 @@ from homeassistant.components.mqtt.subscription import (
     async_subscribe_topics,
     async_unsubscribe_topics,
 )
+from homeassistant.core import callback
 
 from .coordinator import DingzRuntime
 from .models import (
@@ -29,13 +44,14 @@ from .models import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# The input is published as the fifth "button" (0-based index 4), matching the
+# REST button API where index 5 (1-based) is the input. Index 0 carries a
+# different value on firmware 2.6.0 and is ignored.
+MQTT_INPUT_INDEX = 4
+
 
 async def async_setup_mqtt(runtime: DingzRuntime) -> Callable[[], None] | None:
-    """Subscribe to Dingz MQTT topics when HA MQTT is configured.
-
-    REST remains the source of truth and the only command path. MQTT is a
-    firmware push channel (topics are not part of the REST playground).
-    """
+    """Subscribe to Dingz MQTT topics when HA MQTT is configured."""
     if not mqtt.mqtt_config_entry_enabled(runtime.hass):
         return None
 
@@ -44,38 +60,39 @@ async def async_setup_mqtt(runtime: DingzRuntime) -> Callable[[], None] | None:
         _LOGGER.debug("skipping mqtt setup: dingz id unknown")
         return None
 
-    _LOGGER.info("enabling mqtt integration for %s", dingz_id)
+    _LOGGER.debug("enabling mqtt for %s", dingz_id)
     handler = _MqttHandler(runtime)
+    base = f"dingz/{dingz_id}"
     sub_state = async_prepare_subscribe_topics(
         runtime.hass,
         None,
         {
             "online": {
-                "topic": f"dingz/{dingz_id}/online",
+                "topic": f"{base}/online",
                 "msg_callback": handler.handle_online,
             },
             "pir": {
-                "topic": f"dingz/{dingz_id}/+/event/pir/+",
+                "topic": f"{base}/+/event/pir/+",
                 "msg_callback": handler.handle_pir,
             },
             "button": {
-                "topic": f"dingz/{dingz_id}/+/event/button/+",
+                "topic": f"{base}/+/event/button/+",
                 "msg_callback": handler.handle_button,
             },
             "motor": {
-                "topic": f"dingz/{dingz_id}/+/state/motor/+",
+                "topic": f"{base}/+/state/motor/+",
                 "msg_callback": handler.handle_motor,
             },
             "input": {
-                "topic": f"dingz/{dingz_id}/+/state/input/+",
+                "topic": f"{base}/+/state/input/+",
                 "msg_callback": handler.handle_input,
             },
             "sensor": {
-                "topic": f"dingz/{dingz_id}/+/sensor/+",
+                "topic": f"{base}/+/sensor/+",
                 "msg_callback": handler.handle_sensor,
             },
             "light": {
-                "topic": f"dingz/{dingz_id}/+/state/light/+",
+                "topic": f"{base}/+/state/light/+",
                 "msg_callback": handler.handle_light,
             },
         },
@@ -95,112 +112,122 @@ class _MqttHandler:
     def _dispatch(self, notification: InternalNotification) -> None:
         self.runtime.dispatch(notification)
 
-    async def handle_online(self, msg: mqtt.ReceiveMessage) -> None:
-        self._dispatch(MqttOnlineNotification(online=msg.payload == "true"))
+    @callback
+    def handle_online(self, msg: mqtt.ReceiveMessage) -> None:
+        self._dispatch(MqttOnlineNotification(online=_text(msg) == "true"))
 
-    async def handle_pir(self, msg: mqtt.ReceiveMessage) -> None:
+    @callback
+    def handle_pir(self, msg: mqtt.ReceiveMessage) -> None:
         index = _topic_index(msg.topic)
         if index is None:
             return
-        self._dispatch(PirNotification(index=index, event_type=cast(Any, msg.payload)))
+        self._dispatch(PirNotification(index=index, event_type=cast(Any, _text(msg))))
 
-    async def handle_button(self, msg: mqtt.ReceiveMessage) -> None:
+    @callback
+    def handle_button(self, msg: mqtt.ReceiveMessage) -> None:
         index = _topic_index(msg.topic)
         if index is None:
             return
         self._dispatch(
-            ButtonNotification(index=index, event_type=cast(Any, msg.payload))
+            ButtonNotification(index=index, event_type=cast(Any, _text(msg)))
         )
 
-    async def handle_motor(self, msg: mqtt.ReceiveMessage) -> None:
+    @callback
+    def handle_motor(self, msg: mqtt.ReceiveMessage) -> None:
         index = _topic_index(msg.topic)
         payload = _json_object(msg)
         if index is None or payload is None:
             return
-        try:
-            position = payload["position"]
-            lamella = payload["lamella"]
-        except KeyError:
-            _LOGGER.error(
-                "ignoring broken motor notification (topic = %s): %s",
-                msg.topic,
-                msg.payload,
-            )
+        position = payload.get("position")
+        lamella = payload.get("lamella")
+        if not isinstance(position, int) or not isinstance(lamella, int):
+            _LOGGER.debug("ignoring incomplete motor message on %s", msg.topic)
             return
         motion = MotorMotion.parse(payload.get("motion", MotorMotion.STOPPED))
+        # Firmware 2.6.0 renamed ``goal`` to ``target_position``.
+        goal = payload.get("target_position", payload.get("goal"))
         self._patch_blind(index, position=position, lamella=lamella, motion=motion)
         self._dispatch(
             MotorStateNotification(
                 index=index,
                 position=position,
-                goal=payload.get("goal"),
+                goal=goal if isinstance(goal, int) else None,
                 lamella=lamella,
                 motion=motion,
             )
         )
 
-    async def handle_sensor(self, msg: mqtt.ReceiveMessage) -> None:
+    @callback
+    def handle_sensor(self, msg: mqtt.ReceiveMessage) -> None:
         (_, _, sensor) = msg.topic.rpartition("/")
-        try:
-            value = float(msg.payload)
-        except ValueError:
-            _LOGGER.error(
-                "ignoring broken sensor notification (topic = %s): %s",
-                msg.topic,
-                msg.payload,
-            )
+        if sensor not in ("light", "temperature"):
             return
-        self._patch_sensor(cast(Any, sensor), value)
+        value = _number(msg)
+        if value is None:
+            return
+        self._patch_sensor(sensor, value)
         self._dispatch(
             SimpleSensorStateNotification(sensor=cast(Any, sensor), value=value)
         )
 
-    async def handle_input(self, msg: mqtt.ReceiveMessage) -> None:
-        index = _topic_index(msg.topic)
-        if index is None:
+    @callback
+    def handle_input(self, msg: mqtt.ReceiveMessage) -> None:
+        if _topic_index(msg.topic) != MQTT_INPUT_INDEX:
             return
-        self._dispatch(InputStateNotification(index=index, on=msg.payload == "1"))
+        on = _text(msg) == "1"
+        self._patch_input(on)
+        self._dispatch(InputStateNotification(index=0, on=on))
 
-    async def handle_light(self, msg: mqtt.ReceiveMessage) -> None:
+    @callback
+    def handle_light(self, msg: mqtt.ReceiveMessage) -> None:
         index = _topic_index(msg.topic)
         payload = _json_object(msg)
         if index is None or payload is None:
             return
-        try:
-            turn = payload["turn"]
-            brightness = payload["brightness"]
-            exception = payload["exception"]
-        except KeyError:
-            _LOGGER.error(
-                "ignoring broken light notification (topic = %s): %s",
-                msg.topic,
-                msg.payload,
-            )
+        turn = payload.get("turn")
+        brightness = payload.get("brightness")
+        if turn not in ("on", "off") or not isinstance(brightness, int | float):
+            _LOGGER.debug("ignoring incomplete light message on %s", msg.topic)
             return
-        self._patch_dimmer(index, on=turn == "on", brightness=brightness)
+        self._patch_dimmer(index, on=turn == "on", brightness=int(brightness))
         self._dispatch(
             LightStateNotification(
                 index=index,
                 turn=turn,
-                brightness=brightness,
-                exception=exception,
+                brightness=int(brightness),
+                exception=payload.get("exception", 0),
             )
         )
 
+    def _state(self) -> dict[str, Any] | None:
+        data = self.runtime.coordinator.data
+        return dict(data) if isinstance(data, dict) else None
+
     def _replace_state(self, state: dict[str, Any]) -> None:
-        self.runtime.coordinator.async_set_updated_data(cast(Any, state))
+        self.runtime.coordinator.async_patch_state(cast(Any, state))
+
+    def _patch_list_item(
+        self, key: str, relative: int, updates: dict[str, Any]
+    ) -> None:
+        state = self._state()
+        if state is None:
+            return
+        items = list(state.get(key) or [])
+        for position, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            item_relative = (
+                index.get("relative", position) if isinstance(index, dict) else position
+            )
+            if item_relative == relative:
+                items[position] = {**item, **updates}
+                state[key] = items
+                self._replace_state(state)
+                return
 
     def _patch_dimmer(self, index: int, *, on: bool, brightness: int) -> None:
-        state = dict(self.runtime.coordinator.data)
-        dimmers = list(state.get("dimmers") or [])
-        if index >= len(dimmers):
-            return
-        dimmer = dict(dimmers[index])
-        dimmer["on"] = on
-        dimmer["output"] = brightness
-        dimmers[index] = dimmer
-        state["dimmers"] = dimmers
-        self._replace_state(state)
+        self._patch_list_item("dimmers", index, {"on": on, "output": brightness})
 
     def _patch_blind(
         self,
@@ -210,37 +237,46 @@ class _MqttHandler:
         lamella: int,
         motion: MotorMotion,
     ) -> None:
-        state = dict(self.runtime.coordinator.data)
-        blinds = list(state.get("blinds") or [])
-        if index >= len(blinds):
-            return
-        blind = dict(blinds[index])
-        blind["position"] = position
-        blind["lamella"] = lamella
+        updates: dict[str, Any] = {"position": position, "lamella": lamella}
         match motion:
             case MotorMotion.OPENING:
-                blind["moving"] = "up"
+                updates["moving"] = "up"
             case MotorMotion.CLOSING:
-                blind["moving"] = "down"
+                updates["moving"] = "down"
             case MotorMotion.STOPPED:
-                blind["moving"] = "stop"
+                updates["moving"] = "stop"
             case _:
                 pass
-        blinds[index] = blind
-        state["blinds"] = blinds
+        self._patch_list_item("blinds", index, updates)
+
+    def _patch_sensors(self, updates: dict[str, Any]) -> None:
+        state = self._state()
+        if state is None:
+            return
+        state["sensors"] = {**(state.get("sensors") or {}), **updates}
         self._replace_state(state)
 
     def _patch_sensor(self, sensor: str, value: float) -> None:
-        state = dict(self.runtime.coordinator.data)
-        sensors = dict(state.get("sensors") or {})
-        if sensor == "light":
-            sensors["brightness"] = value
-        elif sensor == "temperature":
-            sensors["room_temperature"] = value
-        else:
-            return
-        state["sensors"] = sensors
-        self._replace_state(state)
+        key = "brightness" if sensor == "light" else "room_temperature"
+        self._patch_sensors({key: value})
+
+    def _patch_input(self, on: bool) -> None:
+        self._patch_sensors({"input_state": on})
+
+
+def _text(msg: mqtt.ReceiveMessage) -> str:
+    payload = msg.payload
+    if isinstance(payload, bytes | bytearray):
+        return payload.decode(errors="replace")
+    return str(payload)
+
+
+def _number(msg: mqtt.ReceiveMessage) -> float | None:
+    try:
+        return float(_text(msg))
+    except ValueError:
+        _LOGGER.debug("ignoring non-numeric message on %s", msg.topic)
+        return None
 
 
 def _topic_index(topic: str) -> int | None:
@@ -253,14 +289,10 @@ def _topic_index(topic: str) -> int | None:
 
 def _json_object(msg: mqtt.ReceiveMessage) -> dict[str, Any] | None:
     try:
-        payload: dict[str, Any] | Any = json.loads(msg.payload)
-        if not isinstance(payload, dict):
-            raise TypeError
-    except (json.JSONDecodeError, TypeError):
-        _LOGGER.error(
-            "ignoring broken mqtt payload (topic = %s): %s",
-            msg.topic,
-            msg.payload,
-        )
+        payload = json.loads(_text(msg))
+    except json.JSONDecodeError:
+        payload = None
+    if not isinstance(payload, dict):
+        _LOGGER.debug("ignoring invalid mqtt payload on %s", msg.topic)
         return None
     return payload

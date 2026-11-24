@@ -6,6 +6,7 @@ from homeassistant.components.button import ButtonEntityDescription
 from homeassistant.components.text import TextEntityDescription
 
 from custom_components.dingz.button import Action
+from custom_components.dingz.capabilities import Slot
 from custom_components.dingz.climate import Climate
 from custom_components.dingz.fan import Fan
 from custom_components.dingz.number import TemperatureOffset
@@ -19,6 +20,8 @@ def _runtime(*, fan: bool = False) -> MagicMock:
     runtime.device_info = {}
     runtime.client = MagicMock()
     runtime.client.update_thermostat_config = AsyncMock()
+    runtime.client.set_thermostat = AsyncMock()
+    runtime.client.set_thermostat_mode = AsyncMock()
     runtime.client.set_dimmer = AsyncMock()
     runtime.client.set_temp_offset = AsyncMock()
     runtime.client.update_mqtt_service_config = AsyncMock()
@@ -52,7 +55,7 @@ def test_climate_false_temperature_is_none() -> None:
 
 def test_fan_unique_id() -> None:
     runtime = _runtime(fan=True)
-    entity = Fan(runtime.coordinator, index=2)
+    entity = Fan(runtime.coordinator, slot=Slot(relative=2, absolute=2, readonly=False))
     assert entity.unique_id == f"{DINGZ_ID}_fan_2"
     assert entity.is_on is False
 
@@ -92,4 +95,4 @@ async def test_climate_set_temperature() -> None:
     entity = Climate(runtime.coordinator)
     with patch("custom_components.dingz.entity.COMMAND_REFRESH_DELAY", 0):
         await entity.async_set_temperature(temperature=22)
-    runtime.client.update_thermostat_config.assert_awaited()
+    runtime.client.set_thermostat.assert_awaited_once_with(target_temp=22)

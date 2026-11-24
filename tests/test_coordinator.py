@@ -22,6 +22,7 @@ def _coordinator(client: MagicMock) -> DingzCoordinator:
         return_value=None,
     ):
         coordinator = DingzCoordinator(runtime)
+    coordinator.hass = runtime.hass
     return coordinator
 
 
@@ -38,24 +39,28 @@ async def test_update_timeout_becomes_update_failed() -> None:
     client = MagicMock()
     client.get_state = AsyncMock(side_effect=TimeoutError)
     coordinator = _coordinator(client)
-    with pytest.raises(UpdateFailed, match="Timeout"):
+    with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
+    assert exc.value.translation_key == "timeout"
 
 
 async def test_update_client_error_becomes_update_failed() -> None:
     client = MagicMock()
     client.get_state = AsyncMock(side_effect=aiohttp.ClientConnectionError("down"))
     coordinator = _coordinator(client)
-    with pytest.raises(UpdateFailed, match="Error communicating"):
+    with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
+    assert exc.value.translation_key == "cannot_connect"
+    assert "down" in exc.value.translation_placeholders["error"]
 
 
 async def test_update_ram_error_becomes_update_failed() -> None:
     client = MagicMock()
     client.get_state = AsyncMock(side_effect=api.NotEnoughRamError("oom"))
     coordinator = _coordinator(client)
-    with pytest.raises(UpdateFailed, match="oom"):
+    with pytest.raises(UpdateFailed) as exc:
         await coordinator._async_update_data()
+    assert exc.value.translation_placeholders["error"] == "oom"
 
 
 async def test_config_reloads_when_timestamp_changes() -> None:

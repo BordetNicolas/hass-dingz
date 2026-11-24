@@ -2,10 +2,15 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from custom_components.dingz.capabilities import Slot
 from custom_components.dingz.cover import Blind
 from custom_components.dingz.light import Dimmer, FrontLed
 from custom_components.dingz.switch import PowerSocket
 from tests.fixtures.payloads import DINGZ_ID, full_device_config, state_payload
+
+
+def _slot(index: int) -> Slot:
+    return Slot(relative=index, absolute=index, readonly=False)
 
 
 def _runtime() -> MagicMock:
@@ -28,7 +33,7 @@ def _runtime() -> MagicMock:
 
 async def test_dimmer_state_and_turn_on() -> None:
     runtime = _runtime()
-    entity = Dimmer(runtime, 0)
+    entity = Dimmer(runtime, _slot(0))
     entity.handle_state_update()
     assert entity.is_on is True
     assert entity.brightness == 204
@@ -45,7 +50,7 @@ async def test_dimmer_state_and_turn_on() -> None:
 
 async def test_dimmer_turn_off() -> None:
     runtime = _runtime()
-    entity = Dimmer(runtime, 0)
+    entity = Dimmer(runtime, _slot(0))
     with patch("custom_components.dingz.entity.COMMAND_REFRESH_DELAY", 0):
         await entity.async_turn_off()
     runtime.client.set_dimmer.assert_awaited_with(0, "off", time=None)
@@ -53,7 +58,7 @@ async def test_dimmer_turn_off() -> None:
 
 async def test_switch_on_off() -> None:
     runtime = _runtime()
-    entity = PowerSocket(runtime, 2)
+    entity = PowerSocket(runtime, _slot(2))
     assert entity.is_on is False
     assert entity.unique_id == f"{DINGZ_ID}_socket_2"
     with patch("custom_components.dingz.entity.COMMAND_REFRESH_DELAY", 0):
@@ -73,7 +78,7 @@ async def test_front_led() -> None:
 
 async def test_cover_positions_and_commands() -> None:
     runtime = _runtime()
-    entity = Blind(runtime, index=0)
+    entity = Blind(runtime, slot=_slot(0))
     entity.handle_state_update()
     assert entity.current_cover_position == 40
     assert entity.current_cover_tilt_position == 20
@@ -93,7 +98,7 @@ async def test_cover_positions_and_commands() -> None:
 
 async def test_cover_set_position_and_tilt() -> None:
     runtime = _runtime()
-    entity = Blind(runtime, index=1)
+    entity = Blind(runtime, slot=_slot(1))
     with patch("custom_components.dingz.entity.COMMAND_REFRESH_DELAY", 0):
         await entity.async_set_position_and_tilt(position=0, tilt_position=100)
     runtime.client.move_blind_position.assert_awaited_once_with(1, blind=0, lamella=100)

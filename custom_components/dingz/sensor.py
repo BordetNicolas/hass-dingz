@@ -4,7 +4,7 @@ import contextlib
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    LIGHT_LUX,
     EntityCategory,
     UnitOfInformation,
     UnitOfPower,
@@ -23,7 +24,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .coordinator import DingzConfigEntry, DingzCoordinator, DingzRuntime
+from . import capabilities
+from .coordinator import (
+    DiagnosticCoordinator,
+    DingzConfigEntry,
+    DingzCoordinator,
+    DingzRuntime,
+)
 from .entity import (
     CoordinatedNotificationStateEntity,
     DiagnosticEntity,
@@ -34,6 +41,8 @@ from .entity import (
     json_path_lookup,
 )
 from .models import InternalNotification, SimpleSensorStateNotification
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -119,6 +128,7 @@ async def async_setup_entry(
             )
         )
 
+    state = runtime.coordinator.data or {}
     for name, is_diag in (
         ("room_temperature", False),
         ("uncompensated_temperature", True),
@@ -126,6 +136,10 @@ async def async_setup_entry(
         ("puck_temperature", True),
         ("fet_temperature", True),
     ):
+        # Firmware 2.6.0 no longer reports cpu/puck temperatures: only create
+        # the diagnostic sensors the device actually provides.
+        if is_diag and not capabilities.has_sensor(state, name):
+            continue
         entities.append(
             JsonPathSensor(
                 runtime.coordinator,
@@ -135,6 +149,8 @@ async def async_setup_entry(
                     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
                     state_class=SensorStateClass.MEASUREMENT,
                     entity_category=EntityCategory.DIAGNOSTIC if is_diag else None,
+                    # Internal temperatures only matter for troubleshooting.
+                    entity_registry_enabled_default=not is_diag,
                     translation_key=name,
                 ),
             )
@@ -161,7 +177,11 @@ class OutputPower(DingzOutputEntity, SensorEntity):
     _attr_translation_key = "output_power"
 
     def __init__(self, coordinator: DingzCoordinator, *, index: int) -> None:
-        super().__init__(coordinator, index=index)
+        # power_outputs and output_config are both indexed by physical output.
+        super().__init__(
+            coordinator,
+            slot=capabilities.Slot(relative=index, absolute=index, readonly=False),
+        )
         self._attr_unique_id = entity_unique_id(
             coordinator.runtime, f"output_power_{index}"
         )
@@ -171,7 +191,9 @@ class OutputPower(DingzOutputEntity, SensorEntity):
         try:
             power_outputs = self.coordinator.data["sensors"]["power_outputs"]
             power_output = power_outputs[self.comp_index]
-        except LookupError:
+        except (LookupError, TypeError):
+            return None
+        if not isinstance(power_output, dict):
             return None
         return power_output.get("value")
 
@@ -198,13 +220,13 @@ class JsonPathSensor(DingzEntity, SensorEntity):
             return None
         if self._transform_fn:
             return self._transform_fn(value)
-        return value
+        return cast(StateType, value)
 
 
 class DiagnosticJsonPathSensor(DiagnosticEntity, SensorEntity):
     def __init__(
         self,
-        coordinator,
+        coordinator: DiagnosticCoordinator,
         desc: SensorEntityDescription,
     ) -> None:
         super().__init__(coordinator)
@@ -220,7 +242,7 @@ class DiagnosticJsonPathSensor(DiagnosticEntity, SensorEntity):
 class Brightness(CoordinatedNotificationStateEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ILLUMINANCE
     _attr_has_entity_name = True
-    _attr_native_unit_of_measurement = "lx"
+    _attr_native_unit_of_measurement = LIGHT_LUX
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "brightness"
 
