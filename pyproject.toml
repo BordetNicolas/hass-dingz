@@ -11,6 +11,8 @@ test = [
     "pytest-aiohttp>=1.0.0",
     "pytest-homeassistant-custom-component==0.13.269",
     "pycares<5",
+    "pytest-cov>=5",
+    "mypy>=1.11",
 ]
 
 [build-system]
@@ -65,6 +67,19 @@ max-complexity = 25
 
 [tool.typos.default.extend-identifiers]
 hass = "hass"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true
+files = ["custom_components/dingz"]
+
+[tool.coverage.run]
+source = ["custom_components/dingz"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

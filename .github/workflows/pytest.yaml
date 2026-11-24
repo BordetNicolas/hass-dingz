@@ -10,7 +10,7 @@ on:
 
 jobs:
   pytest:
-    name: "Pytest"
+    name: "Pytest (minimum Home Assistant)"
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout the repository"
@@ -27,5 +27,32 @@ jobs:
       - name: "Install test dependencies"
         run: uv pip install --system -e ".[test]"
 
+      - name: "Run tests with coverage"
+        run: pytest -q --cov --cov-report=term-missing
+
+      - name: "Strict type checking"
+        run: mypy
+
+  pytest-latest:
+    # Newest Home Assistant supported by pytest-homeassistant-custom-component.
+    # Informative: a new HA release may break it before this repository adapts.
+    name: "Pytest (latest Home Assistant)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: "Checkout the repository"
+        uses: actions/checkout@v7
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: "Install uv"
+        uses: astral-sh/setup-uv@v7
+
+      - name: "Install latest test harness"
+        run: uv pip install --system pytest-homeassistant-custom-component pytest-cov
+
       - name: "Run tests"
-        run: pytest -q
+        run: pytest -q -W "error::DeprecationWarning:custom_components"
