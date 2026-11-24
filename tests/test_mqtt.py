@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from custom_components.dingz.models import (
     ButtonNotification,
+    EnergyNotification,
     InputStateNotification,
     LightStateNotification,
     MotorMotion,
@@ -169,6 +170,27 @@ def test_input_uses_index_4_only() -> None:
     assert notification.on is True
     patched = runtime.coordinator.async_patch_state.call_args[0][0]
     assert patched["sensors"]["input_state"] is True
+
+
+def test_energy_notifications() -> None:
+    handler, runtime = _handler()
+    handler.handle_energy(_msg("dingz/id/m/energy/light/1", "209470.0"))
+    notification = runtime.dispatch.call_args[0][0]
+    assert isinstance(notification, EnergyNotification)
+    assert (notification.kind, notification.index, notification.value) == (
+        "light",
+        1,
+        209470.0,
+    )
+    runtime.dispatch.reset_mock()
+    for topic, payload in (
+        ("dingz/id/m/energy/heater/0", "1"),
+        ("dingz/id/m/energy/light/x", "1"),
+        ("dingz/id/m/energy/light/0", "nan?"),
+        ("dingz/id/m/energy/light/0", "-5"),
+    ):
+        handler.handle_energy(_msg(topic, payload))
+    runtime.dispatch.assert_not_called()
 
 
 def test_sensor_and_online() -> None:

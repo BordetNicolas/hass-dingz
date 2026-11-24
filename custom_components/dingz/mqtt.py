@@ -9,6 +9,7 @@ Topics observed on firmware 2.4.3 and 2.6.0 (``<id>`` is the lower-case MAC,
 - ``dingz/<id>/<model>/state/input/<n>`` (``0``/``1``)
 - ``dingz/<id>/<model>/sensor/<light|temperature>`` (number)
 - ``dingz/<id>/<model>/power/<light|motor>/<relative index>`` (W)
+- ``dingz/<id>/<model>/energy/<light|motor>/<relative index>`` (counter)
 - ``dingz/<id>/<model>/event/<button|pir>/<n>`` (event code)
 
 REST remains the source of truth and the only command path.
@@ -32,6 +33,7 @@ from homeassistant.core import callback
 from .coordinator import DingzRuntime
 from .models import (
     ButtonNotification,
+    EnergyNotification,
     InputStateNotification,
     InternalNotification,
     LightStateNotification,
@@ -94,6 +96,10 @@ async def async_setup_mqtt(runtime: DingzRuntime) -> Callable[[], None] | None:
             "light": {
                 "topic": f"{base}/+/state/light/+",
                 "msg_callback": handler.handle_light,
+            },
+            "energy": {
+                "topic": f"{base}/+/energy/+/+",
+                "msg_callback": handler.handle_energy,
             },
         },
     )
@@ -197,6 +203,19 @@ class _MqttHandler:
                 brightness=int(brightness),
                 exception=payload.get("exception", 0),
             )
+        )
+
+    @callback
+    def handle_energy(self, msg: mqtt.ReceiveMessage) -> None:
+        levels = msg.topic.split("/")
+        index = _topic_index(msg.topic)
+        if index is None or len(levels) < 2 or levels[-2] not in ("light", "motor"):
+            return
+        value = _number(msg)
+        if value is None or value < 0:
+            return
+        self._dispatch(
+            EnergyNotification(kind=cast(Any, levels[-2]), index=index, value=value)
         )
 
     def _state(self) -> dict[str, Any] | None:

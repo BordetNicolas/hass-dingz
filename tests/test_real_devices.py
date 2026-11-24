@@ -81,6 +81,8 @@ async def test_two_blinds_device_has_no_phantom_lights(
     assert hass.states.get(ids["cover_1"]).name.endswith("Store Diner Ouest Droite")
     # 2.6.0 dropped cpu/puck temperatures.
     assert "sensors.cpu_temperature" not in ids
+    # MQTT is enabled on the device: energy counters for both motors.
+    assert {"energy_motor_0", "energy_motor_1"} <= set(ids)
 
 
 async def test_cover_uses_config_of_its_absolute_motor(

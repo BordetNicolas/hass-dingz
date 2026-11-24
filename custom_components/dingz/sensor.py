@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -15,6 +16,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     LIGHT_LUX,
     EntityCategory,
+    UnitOfEnergy,
     UnitOfInformation,
     UnitOfPower,
     UnitOfTemperature,
@@ -36,11 +38,18 @@ from .entity import (
     DiagnosticEntity,
     DingzEntity,
     DingzOutputEntity,
+    OutputMixin,
+    UserAssignedNameMixin,
+    clean_name,
     compile_json_path,
     entity_unique_id,
     json_path_lookup,
 )
-from .models import InternalNotification, SimpleSensorStateNotification
+from .models import (
+    EnergyNotification,
+    InternalNotification,
+    SimpleSensorStateNotification,
+)
 
 PARALLEL_UPDATES = 0
 
@@ -160,6 +169,19 @@ async def async_setup_entry(
         if dingz_output.get("active", False):
             entities.append(OutputPower(runtime.coordinator, index=index))
 
+    # Cumulative energy is only published over MQTT (firmware 2.4.3 and 2.6.0).
+    if capabilities.mqtt_enabled(runtime.device_config):
+        for slot in capabilities.dimmer_slots(state):
+            config = capabilities.item_at(runtime.device_config.outputs, slot.absolute)
+            if slot.readonly or not (
+                isinstance(config, dict) and config.get("active", False)
+            ):
+                continue
+            entities.append(OutputEnergy(runtime, slot))
+        for slot in capabilities.blind_slots(state):
+            if not slot.readonly:
+                entities.append(MotorEnergy(runtime, slot))
+
     async_add_entities(entities)
 
 
@@ -270,3 +292,75 @@ class Brightness(CoordinatedNotificationStateEntity, SensorEntity):
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:
         return self._brightness
+
+
+class _EnergyBase(CoordinatedNotificationStateEntity, RestoreSensor):
+    """Energy counter pushed over MQTT, restored across restarts.
+
+    The firmware publishes watt-seconds: the counter grows by power x time
+    (measured on firmware 2.4.3 and 2.6.0).
+    """
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfEnergy.JOULE
+    _attr_suggested_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _kind: str
+    _slot: capabilities.Slot
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None:
+            self._attr_native_value = last.native_value
+
+    @callback
+    def handle_notification(self, notification: InternalNotification) -> None:
+        if not (
+            isinstance(notification, EnergyNotification)
+            and notification.kind == self._kind
+            and notification.index == self._slot.relative
+        ):
+            return
+        self._attr_native_value = notification.value
+        self.async_write_ha_state()
+
+    @callback
+    def handle_state_update(self) -> None:
+        return
+
+
+class OutputEnergy(_EnergyBase, OutputMixin):
+    _attr_translation_key = "output_energy"
+    _kind = "light"
+
+    def __init__(self, runtime: DingzRuntime, slot: capabilities.Slot) -> None:
+        super().__init__(runtime)
+        self._slot = slot
+        self._attr_unique_id = entity_unique_id(
+            runtime, f"energy_output_{slot.absolute}"
+        )
+        self._attr_device_info = runtime.device_info
+
+
+class MotorEnergy(_EnergyBase, UserAssignedNameMixin):
+    _attr_translation_key = "motor_energy"
+    _kind = "motor"
+
+    def __init__(self, runtime: DingzRuntime, slot: capabilities.Slot) -> None:
+        super().__init__(runtime)
+        self._slot = slot
+        self._attr_unique_id = entity_unique_id(
+            runtime, f"energy_motor_{slot.relative}"
+        )
+        self._attr_device_info = runtime.device_info
+
+    @property
+    def comp_index(self) -> int:
+        return self._slot.relative
+
+    @property
+    def user_given_name(self) -> str | None:
+        config = capabilities.item_at(
+            self.coordinator.device_config.blinds, self._slot.absolute
+        )
+        return clean_name(config.get("name")) if isinstance(config, dict) else None

@@ -77,6 +77,16 @@ class InputStateNotification(InternalNotification):
 
 
 @dataclass(slots=True, kw_only=True)
+class EnergyNotification(InternalNotification):
+    """Cumulative energy counter pushed over MQTT (not available via REST)."""
+
+    kind: Literal["light", "motor"]
+    index: int
+    """Relative dimmer or motor index."""
+    value: float
+
+
+@dataclass(slots=True, kw_only=True)
 class LightStateNotification(InternalNotification):
     index: int
     turn: Literal["on", "off"]

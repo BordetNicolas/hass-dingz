@@ -275,6 +275,7 @@ async def test_mqtt_subscription(hass: HomeAssistant, mock_dingz_client) -> None
         )
         topics = {k: v["topic"] for k, v in prepare.call_args.args[2].items()}
         dingz_id = entry.unique_id
+        assert topics["energy"] == f"dingz/{dingz_id}/+/energy/+/+"
         assert topics["input"] == f"dingz/{dingz_id}/+/state/input/+"
         assert await hass.config_entries.async_unload(entry.entry_id)
         unsubscribe.assert_called_once()
