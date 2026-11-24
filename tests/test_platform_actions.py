@@ -266,6 +266,9 @@ async def test_mqtt_subscription(hass: HomeAssistant, mock_dingz_client) -> None
             "custom_components.dingz.mqtt.mqtt.mqtt_config_entry_enabled",
             return_value=True,
         ),
+        patch.object(
+            hass.config_entries, "async_loaded_entries", return_value=[MagicMock()]
+        ),
         patch("custom_components.dingz.mqtt.async_prepare_subscribe_topics") as prepare,
         patch("custom_components.dingz.mqtt.async_subscribe_topics", AsyncMock()),
         patch("custom_components.dingz.mqtt.async_unsubscribe_topics") as unsubscribe,
@@ -443,3 +446,17 @@ async def test_timestamps_and_brightness_push(
     )
     await hass.async_block_till_done()
     assert hass.states.get(brightness).state == "999"
+
+
+async def test_mqtt_module_not_loaded_without_mqtt_integration(
+    hass: HomeAssistant, mock_dingz_client
+) -> None:
+    """Without the MQTT integration, its client library is never imported."""
+    with patch(
+        "custom_components.dingz.mqtt.async_setup_mqtt", AsyncMock()
+    ) as setup_mqtt:
+        entry = await _setup(
+            hass, mock_dingz_client, devices.load("fw260_dip3_input_pir")
+        )
+    setup_mqtt.assert_not_called()
+    assert entry.runtime_data._mqtt_unsub is None

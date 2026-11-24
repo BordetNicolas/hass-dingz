@@ -244,8 +244,14 @@ async def test_unload_unsubscribes_mqtt(
     hass: HomeAssistant, mock_dingz_client, mock_mqtt_disabled
 ) -> None:
     unsub = MagicMock()
-    with patch(
-        "custom_components.dingz.mqtt.async_setup_mqtt", AsyncMock(return_value=unsub)
+    with (
+        patch.object(
+            hass.config_entries, "async_loaded_entries", return_value=[MagicMock()]
+        ),
+        patch(
+            "custom_components.dingz.mqtt.async_setup_mqtt",
+            AsyncMock(return_value=unsub),
+        ),
     ):
         entry = await _setup(
             hass, mock_dingz_client, devices.load("fw260_dip3_input_pir")

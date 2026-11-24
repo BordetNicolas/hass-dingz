@@ -253,9 +253,13 @@ class DingzRuntime:
 
         self._check_firmware()
 
-        from .mqtt import async_setup_mqtt
+        # The MQTT component is only imported (and its client library loaded)
+        # when the MQTT integration is actually set up: importing it inside
+        # the event loop otherwise triggers blocking-call warnings.
+        if self.hass.config_entries.async_loaded_entries("mqtt"):
+            from .mqtt import async_setup_mqtt
 
-        self._mqtt_unsub = await async_setup_mqtt(self)
+            self._mqtt_unsub = await async_setup_mqtt(self)
 
     def _check_firmware(self) -> None:
         issue_id = f"unsupported_firmware_{self.entry.entry_id}"
